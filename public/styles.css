@@ -1,0 +1,384 @@
+/* Trek — production stylesheet.
+ *
+ * Design language transcribed from the approved prototypes (Travel Expenses App,
+ * Trek Admin Console). Colours, type scale and spacing are the approved values.
+ * This is a recreation of the approved design, not a redesign.
+ *
+ * PROVISIONAL — Slot 1 (frontend framework) is unsigned. Plain CSS + plain JS with
+ * no build step is the choice that keeps Slot 1 open: there is no framework to
+ * migrate off, the same reasoning that put raw SQL behind ST-02. If Slot 1 signs
+ * React/Next, this file is the visual specification to port.
+ */
+
+:root {
+  --ink:        #14342A;
+  --ink-72:     rgba(20, 52, 42, .72);
+  --ink-62:     rgba(20, 52, 42, .62);
+  --ink-50:     rgba(20, 52, 42, .50);
+  --ink-38:     rgba(20, 52, 42, .38);
+  --line:       rgba(20, 52, 42, .10);
+  --line-soft:  rgba(20, 52, 42, .06);
+  --green:      #0A4636;
+  --green-deep: #06342A;
+  --mint:       #E7F2EC;
+  --mint-soft:  rgba(14, 122, 95, .10);
+  --canvas:     #F6F7F5;
+  --surface:    #FFFFFF;
+  --danger:     #8A4A11;
+  --warn:       #B25E17;
+  --warn-ring:  rgba(178, 94, 23, .32);
+  --ok-bg:      rgba(14, 122, 95, .10);
+  --ok-fg:      #0A4636;
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  --shadow-card: 0 1px 2px rgba(20, 52, 42, .04), 0 8px 24px rgba(20, 52, 42, .05);
+  --shadow-pop:  0 12px 40px rgba(20, 52, 42, .14);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--green); text-decoration: none; }
+a:hover { color: var(--green-deep); text-decoration: underline; }
+
+button { font: inherit; cursor: pointer; }
+input, select, textarea { font: inherit; color: inherit; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ============================================================ login (A1) */
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 36px 32px 32px;
+  box-shadow: var(--shadow-card);
+}
+
+/* The only place the full lockup appears, per the approved brand application. */
+.login-lockup { display: block; height: 30px; margin-bottom: 28px; }
+
+.login h1 {
+  margin: 0 0 6px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.login p.sub { margin: 0 0 24px; font-size: 14px; color: var(--ink-62); }
+
+.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.field label { font-size: 13px; font-weight: 500; color: var(--ink-72); }
+.field .hint { font-size: 12px; color: var(--ink-50); }
+
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  outline: none;
+  transition: border-color .12s, box-shadow .12s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--green);
+  box-shadow: 0 0 0 3px var(--mint-soft);
+}
+.field input:disabled { background: var(--canvas); color: var(--ink-50); }
+
+.field.invalid input, .field.invalid select {
+  border-color: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-ring);
+}
+.field .error { font-size: 12.5px; color: var(--danger); }
+
+/* The code field: wide tracking, tabular, because it is read off an email. */
+.code-input {
+  letter-spacing: .34em;
+  font-size: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 11px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font-size: 14px; font-weight: 500;
+  background: var(--green); color: #fff;
+  transition: background .12s, opacity .12s;
+}
+.btn:hover:not(:disabled) { background: var(--green-deep); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.block { width: 100%; }
+.btn.ghost { background: transparent; color: var(--ink-72); border-color: var(--line); }
+.btn.ghost:hover:not(:disabled) { background: var(--canvas); color: var(--ink); }
+.btn.quiet { background: transparent; color: var(--green); border-color: transparent; padding: 6px 8px; }
+.btn.quiet:hover:not(:disabled) { background: var(--mint); }
+.btn.danger { background: transparent; color: var(--danger); border-color: var(--line); }
+.btn.danger:hover:not(:disabled) { background: rgba(138, 74, 17, .06); }
+.btn.sm { padding: 6px 12px; font-size: 13px; }
+
+.form-note { margin: 14px 0 0; font-size: 13px; color: var(--ink-62); }
+.form-error {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: rgba(138, 74, 17, .07);
+  border: 1px solid rgba(138, 74, 17, .18);
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  color: var(--danger);
+}
+
+/* ============================================================ app shell */
+
+.shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
+
+.sidebar {
+  background: var(--green-deep);
+  padding: 20px 14px;
+  display: flex; flex-direction: column; gap: 22px;
+}
+/* Mark only in the sidebar — never the full lockup. */
+.sidebar-mark { height: 26px; width: auto; align-self: flex-start; margin-left: 6px; }
+
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px;
+  border: none; background: transparent;
+  border-radius: var(--r-sm);
+  color: rgba(255, 255, 255, .68);
+  font-size: 13.5px; text-align: left;
+  transition: background .12s, color .12s;
+}
+.nav-item:hover { background: rgba(255, 255, 255, .07); color: #fff; }
+.nav-item.active { background: rgba(255, 255, 255, .13); color: #fff; font-weight: 500; }
+.nav-item.blocked { color: rgba(255, 255, 255, .3); cursor: not-allowed; }
+.nav-item.blocked:hover { background: transparent; color: rgba(255, 255, 255, .3); }
+.nav-section {
+  padding: 0 10px; margin-top: 6px;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+  color: rgba(255, 255, 255, .38);
+}
+.nav-count {
+  font-size: 11.5px; font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .5);
+}
+
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.sidebar-user { padding: 0 10px; }
+.sidebar-user .nm { font-size: 13px; color: #fff; }
+.sidebar-user .rl { font-size: 11.5px; color: rgba(255, 255, 255, .5); }
+
+.main { padding: 28px 32px 48px; min-width: 0; }
+.page-head { margin-bottom: 22px; }
+.page-head h1 { margin: 0 0 4px; font-size: 22px; font-weight: 600; letter-spacing: -.01em; }
+.page-head p { margin: 0; font-size: 13.5px; color: var(--ink-62); max-width: 68ch; }
+
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .grow { flex: 1 1 200px; min-width: 0; }
+.toolbar input, .toolbar select {
+  padding: 8px 11px; border: 1px solid var(--line);
+  border-radius: var(--r-sm); background: var(--surface);
+}
+
+/* ============================================================ table */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; padding: 10px 14px;
+  font-size: 11.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-50);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody td { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); font-size: 13.5px; vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--canvas); }
+
+.cell-primary { font-weight: 500; }
+.cell-sub { font-size: 12px; color: var(--ink-50); }
+
+.pill {
+  display: inline-block; padding: 2px 8px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 500;
+}
+.pill.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.pill.off { background: rgba(20, 52, 42, .07); color: var(--ink-62); }
+.pill.warn { background: rgba(178, 94, 23, .12); color: var(--warn); }
+.pill-row { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.empty { padding: 44px 20px; text-align: center; }
+.empty h3 { margin: 0 0 6px; font-size: 15px; font-weight: 500; }
+.empty p { margin: 0 0 16px; font-size: 13.5px; color: var(--ink-62); }
+
+.skeleton {
+  height: 12px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--line-soft) 25%, rgba(20,52,42,.10) 50%, var(--line-soft) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.3s linear infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ============================================================ drawer (B17) */
+
+.drawer-scrim {
+  position: fixed; inset: 0;
+  background: rgba(6, 52, 42, .28);
+  display: flex; justify-content: flex-end;
+  z-index: 40;
+}
+.drawer {
+  width: min(520px, 100%);
+  background: var(--surface);
+  height: 100%;
+  overflow-y: auto;
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column;
+}
+.drawer-head {
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+}
+.drawer-head h2 { margin: 0 0 3px; font-size: 17px; font-weight: 600; }
+.drawer-head p { margin: 0; font-size: 13px; color: var(--ink-62); }
+.drawer-body { padding: 20px 24px; flex: 1; }
+.drawer-foot {
+  padding: 16px 24px; border-top: 1px solid var(--line);
+  display: flex; gap: 10px; justify-content: flex-end;
+  position: sticky; bottom: 0; background: var(--surface);
+}
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); font-size: 13px; color: var(--ink-72);
+  transition: background .12s, border-color .12s, color .12s;
+}
+.chip[aria-pressed="true"] {
+  background: var(--mint); border-color: rgba(14, 122, 95, .3); color: var(--green);
+  font-weight: 500;
+}
+
+/* ============================================================ profile (A21) */
+
+.profile { max-width: 560px; }
+.kv { display: grid; grid-template-columns: 172px 1fr; gap: 0; }
+.kv > dt {
+  padding: 11px 0; font-size: 13px; color: var(--ink-50);
+  border-bottom: 1px solid var(--line-soft);
+}
+.kv > dd {
+  padding: 11px 0; margin: 0; font-size: 13.5px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.kv > dt:last-of-type, .kv > dd:last-of-type { border-bottom: none; }
+
+/* ============================================================ audit (B23) */
+
+.audit-row { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+.audit-row:last-child { border-bottom: none; }
+.audit-top { display: flex; justify-content: space-between; gap: 14px; align-items: baseline; }
+.audit-detail { font-size: 13.5px; }
+.audit-when { font-size: 12px; color: var(--ink-50); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.audit-meta { margin-top: 3px; font-size: 12px; color: var(--ink-50); }
+.audit-state { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11.5px; }
+.audit-reason {
+  margin-top: 6px; padding: 8px 10px;
+  background: var(--canvas); border-left: 2px solid var(--warn);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-size: 13px; color: var(--ink-72);
+}
+
+/* ============================================================ gated notice */
+
+/* Screens blocked on an unsigned decision say so, precisely. They are never
+ * stubbed with fake data — a plausible-looking empty trip list would be a lie. */
+.gated {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--r-md);
+  padding: 22px 24px;
+  max-width: 620px;
+}
+.gated h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
+.gated p { margin: 0 0 12px; font-size: 13.5px; color: var(--ink-72); }
+.gated ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-72); }
+.gated li { margin-bottom: 5px; }
+.gated code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px; background: var(--canvas);
+  padding: 1px 5px; border-radius: 4px;
+}
+
+/* ============================================================ toast */
+
+.toasts {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; gap: 8px; z-index: 60;
+}
+.toast {
+  padding: 11px 16px;
+  background: var(--green-deep); color: #fff;
+  border-radius: var(--r-sm); font-size: 13.5px;
+  box-shadow: var(--shadow-pop);
+  animation: rise .18s ease-out;
+}
+.toast.bad { background: var(--danger); }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ============================================================ responsive */
+
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  .sidebar { flex-direction: row; align-items: center; gap: 14px; padding: 12px 16px; overflow-x: auto; }
+  .sidebar-mark { height: 22px; margin: 0; }
+  .nav { flex-direction: row; gap: 4px; }
+  .nav-section, .sidebar-foot { display: none; }
+  .main { padding: 20px 16px 40px; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .kv { grid-template-columns: 1fr; }
+  .kv > dt { padding-bottom: 0; border-bottom: none; }
+  table { display: block; overflow-x: auto; }
+}

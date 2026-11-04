@@ -1,0 +1,24 @@
+{
+  "name": "trek",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/http/server.js",
+    "start": "node --env-file-if-exists=.env src/http/server.js",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.js up",
+    "migrate:status": "node --env-file-if-exists=.env scripts/migrate.js status",
+    "seed": "node --env-file-if-exists=.env scripts/seed.js",
+    "seed:staging": "node --env-file-if-exists=.env scripts/seed-staging.js",
+    "reset:staging": "node --env-file-if-exists=.env scripts/reset-staging.js",
+    "issue-password-link": "node --env-file-if-exists=.env scripts/issue-password-link.js",
+    "test": "node --env-file-if-exists=.env --test",
+    "check:no-bypass": "bash scripts/check-no-auth-bypass.sh",
+    "check": "npm run check:no-bypass && npm test"
+  },
+  "dependencies": {
+    "pg": "^8.12.0"
+  },
+  "comment": "ONE dependency. No ORM (ST-02 unsigned), no web framework (ST-02 unsigned), no auth provider (ST-05 unsigned), no mail SDK, no validation library, and no native crypto module — password hashing is node:crypto scrypt, so nothing can fail to build on Vercel."
+}

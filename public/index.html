@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trek</title>
+<link rel="icon" href="/brand/favicon.svg">
+<link rel="stylesheet" href="/styles.css?v=1">
+</head>
+<body>
+<div id="root">
+  <!-- Painted before app.js runs so a slow connection shows the login card,
+       not a blank page. app.js replaces this once it knows the session state. -->
+  <div class="login">
+    <div class="login-card">
+      <img class="login-lockup" src="/brand/trek-logo.svg" alt="Trek">
+      <h1>Sign in</h1>
+      <p class="sub">Use your work email and password.</p>
+      <div class="field"><div class="skeleton" style="height:40px"></div></div>
+      <div class="skeleton" style="height:42px"></div>
+    </div>
+  </div>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="/app.js?v=1"></script>
+</body>
+</html>

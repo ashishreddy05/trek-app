@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  gate:
+    name: no-auth-bypass gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Runs FIRST and standalone. A bypass must not reach a deployable artifact
+      # even if the test suite is green, and even under time pressure.
+      - name: No development authentication bypass
+        run: bash scripts/check-no-auth-bypass.sh
+
+  test:
+    name: migrate + test
+    runs-on: ubuntu-latest
+    needs: gate
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trek_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: [5432:5432]
+    env:
+      APP_ENV: dev
+      APP_BASE_URL: http://localhost:3000
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/trek_test
+      DATABASE_SSL_MODE: disable
+      MAIL_DRIVER: console
+      LOGIN_EMAIL_DOMAINS: garageplug.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Apply migrations
+        run: npm run migrate
+
+      - name: Migration status
+        run: npm run migrate:status
+
+      # Adversarial authorization suite + audit immutability against a real database.
+      - name: Test
+        run: npm test
+
+      # The staging reset must refuse to run outside staging. Assert it here rather
+      # than trusting the guards by reading them.
+      - name: Staging reset refuses outside staging
+        run: |
+          set +e
+          APP_ENV=prod TREK_ALLOW_STAGING_RESET=yes node scripts/reset-staging.js --confirm
+          if [ $? -eq 0 ]; then echo "✗ reset ran with APP_ENV=prod"; exit 1; fi
+          APP_ENV=staging node scripts/reset-staging.js --confirm
+          if [ $? -eq 0 ]; then echo "✗ reset ran without the opt-in variable"; exit 1; fi
+          echo "✓ staging reset correctly refused both times"
+
+  secrets:
+    name: no secrets committed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a committed .env
+        run: |
+          if [ -f .env ]; then
+            echo "✗ .env is committed. Secrets belong in the platform secret store."
+            exit 1
+          fi
+          echo "✓ no .env committed"
+      - name: Refuse obvious secret literals
+        run: |
+          if grep -rnE --include='*.js' \
+               "(sk_live|pk_live|AKIA[0-9A-Z]{16}|-----BEGIN (RSA )?PRIVATE KEY)" \
+               src scripts 2>/dev/null; then
+            echo "✗ possible committed secret"
+            exit 1
+          fi
+          echo "✓ no secret literals found"
