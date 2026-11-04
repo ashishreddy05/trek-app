@@ -6,6 +6,7 @@
     "api/[...path].js": { "maxDuration": 15, "memory": 1024 }
   },
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/[...path]" },
     { "source": "/healthz", "destination": "/api/healthz" },
     { "source": "/readyz", "destination": "/api/readyz" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
