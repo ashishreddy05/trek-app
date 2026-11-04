@@ -33,6 +33,19 @@ export const ACTIONS = {
   ROLE_ASSIGN: 'role.assign',
   DEPARTMENT_CREATE: 'department.create',
   DEPARTMENT_UPDATE: 'department.update',
+  // trips
+  TRIP_CREATE: 'trip.create',
+  TRIP_UPDATE: 'trip.update',
+  TRIP_SUBMIT: 'trip.submit',
+  TRIP_APPROVE: 'trip.approve',
+  TRIP_REJECT: 'trip.reject',
+  // expenses
+  EXPENSE_CREATE: 'expense.create',
+  EXPENSE_UPDATE: 'expense.update',
+  EXPENSE_DELETE: 'expense.delete',
+  EXPENSE_SUBMIT: 'expense.submit',
+  EXPENSE_APPROVE: 'expense.approve',
+  EXPENSE_REJECT: 'expense.reject',
   // authz
   AUTHZ_DENIED: 'authz.denied',
 };

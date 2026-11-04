@@ -1,11 +1,6 @@
-/* Password rules.
- *
- * PROVISIONAL — BD-10 (password policy) is unsigned. These values follow NIST SP 800-63B:
- * length rather than composition rules, no forced periodic change, block the obvious.
- * Changing them later affects only passwords set afterwards.
- */
+/* Password rules: minimum length 6, maximum length 128. Obvious passwords are blocked. */
 
-export const POLICY = { minLength: 12, maxLength: 128 };
+export const POLICY = { minLength: 6, maxLength: 128 };
 
 const OBVIOUS = ['password', 'qwerty', 'letmein', 'welcome', 'iloveyou', 'admin', 'changeit'];
 

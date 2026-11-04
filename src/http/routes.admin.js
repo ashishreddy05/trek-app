@@ -69,7 +69,7 @@ export async function postEmployee(ctx) {
   /* Roles and status are set through their own endpoints, so they are rejected here
    * rather than silently ignored. costCenterId is permitted — Admin may pick one
    * within the department — but is re-derived if it does not belong. */
-  rejectServerDerived(ctx.body, ['costCenterId']);
+  rejectServerDerived(ctx.body, ['costCenterId', 'departmentId']);
 
   const employee = await createEmployee({
     input: ctx.body,
@@ -84,7 +84,7 @@ export async function postEmployee(ctx) {
 /* PATCH /api/v1/employees/:id */
 export async function patchEmployee(ctx) {
   await authorize(ctx.db, ctx.principal, 'employee.update', { employeeId: ctx.params.id }, ctx.requestId);
-  rejectServerDerived(ctx.body, ['costCenterId']);
+  rejectServerDerived(ctx.body, ['costCenterId', 'departmentId']);
 
   const employee = await updateEmployee({
     id: ctx.params.id,

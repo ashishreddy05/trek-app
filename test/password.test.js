@@ -38,7 +38,8 @@ describe('hashing', () => {
 
 describe('policy (PROVISIONAL — BD-10)', () => {
   const who = { email: 'suresh.kumar@garageplug.com', name: 'Suresh Kumar' };
-  test('too short', () => assert.match(passwordProblem('short', who), /at least 12/));
+  test('too short', () => assert.match(passwordProblem('short', who), /at least 6/));
+  test('six characters are accepted', () => assert.equal(passwordProblem('violet', who), null));
   test('contains the email address', () => assert.ok(passwordProblem('suresh.kumar-2026!', who)));
   test('contains the name', () => assert.ok(passwordProblem('kumar is travelling', who)));
   test('contains the company name', () => assert.ok(passwordProblem('garageplug travel!', who)));

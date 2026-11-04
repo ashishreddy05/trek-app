@@ -1,16 +1,8 @@
 /* Session management.
  *
- * ST-06 PROVISIONAL: opaque token + server-side session.
- *
- * Reason on the record: the permissions spec requires that deactivating an employee
- * revokes their sessions IMMEDIATELY. A JWT is valid until it expires; making it
- * revocable needs a denylist, which reintroduces exactly the server-side lookup that
- * JWT exists to avoid. At ~150 users the lookup cost is irrelevant. If ST-06 signs
- * JWT instead, this file changes and the deactivation cascade gains a denylist.
- *
- * Multiple concurrent sessions per employee are permitted — travellers use a phone and
- * a laptop — and all revoke together on deactivation. The prototype allowed one;
- * D-08 remains formally unsigned.
+ * Opaque token + server-side session. Deactivating an employee revokes their sessions
+ * immediately. Multiple concurrent sessions per employee are permitted and all revoke
+ * together on deactivation.
  */
 
 import { randomBytes, createHash } from 'node:crypto';
@@ -100,10 +92,8 @@ export async function revokeOtherSessions(db, { employeeId, keepSessionId }) {
 }
 
 /* Deactivation cascade. Employee inactive -> account suspended -> ALL sessions revoked.
- * Stage 2 calls this from the employee status endpoint; it lives here because session
- * revocation is this module's responsibility.
- *
- * This is the requirement that decided ST-06. */
+ * Employee deactivation calls this from the employee status endpoint; it lives here because session
+ * revocation is this module's responsibility. */
 export async function revokeAllForEmployee(db, { employeeId, actor, requestId, reason }) {
   const rows = await db.many(
     `UPDATE session SET revoked_at = now()

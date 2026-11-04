@@ -37,20 +37,12 @@ const COST_CENTERS = [
 /* id, code, name, email, dept, designation, grade, managerId, costCenter, location, joined, roles */
 const EMPLOYEES = [
   // Function roles. manager_id NULL by design — see BD-02.
-  ['emp_1001', 'GP-0007', 'Vikram Shetty', 'vikram.shetty@garageplug.com', 'dep_sls', 'VP Sales',               'G6', null,       'cc_ccsls01', 'Riyadh', '2021-03-15', ['employee', 'manager']],
-  ['emp_1002', 'GP-0002', 'Ravi Nambiar',  'ravi.nambiar@garageplug.com',  'dep_fin', 'Finance Controller',      'G6', null,       'cc_ccfin01', 'Riyadh', '2020-07-01', ['employee', 'finance']],
-  ['emp_1004', 'GP-0004', 'Sara Mansour',  'sara.mansour@garageplug.com',  'dep_hrt', 'Travel Desk Lead',        'G4', null,       'cc_cchrt01', 'Riyadh', '2022-01-10', ['employee', 'hr_travel']],
   // Temporary bootstrap account; personnel fields are test placeholders (migration 003).
   ['emp_1000', 'TEST-ADMIN', 'Ashish Reddy', 'ashishreddy@garageplug.com', 'dep_adm', 'Temporary test administrator', 'G1', null, 'cc_ccadm01', 'Not configured', new Date().toISOString().slice(0, 10), ['employee', 'admin']],
-  // Five Sales travellers.
-  ['emp_1231', 'GP-0231', 'Suresh Kumar',  'suresh.kumar@garageplug.com',  'dep_sls', 'Senior Account Executive','G4', 'emp_1001', 'cc_ccsls01', 'Riyadh', '2023-02-06', ['employee']],
-  ['emp_1232', 'GP-0232', 'Nadia Haddad',  'nadia.haddad@garageplug.com',  'dep_sls', 'Account Executive',       'G3', 'emp_1001', 'cc_ccsls01', 'Jeddah', '2023-09-11', ['employee']],
-  ['emp_1233', 'GP-0233', 'Omar Farouk',   'omar.farouk@garageplug.com',   'dep_sls', 'Account Executive',       'G3', 'emp_1001', 'cc_ccsls01', 'Riyadh', '2024-01-15', ['employee']],
-  ['emp_1234', 'GP-0234', 'Meera Iyer',    'meera.iyer@garageplug.com',    'dep_sls', 'Enterprise Account Manager','G4','emp_1001','cc_ccsls01', 'Riyadh', '2022-06-01', ['employee']],
-  ['emp_1235', 'GP-0235', 'Tom Whitfield', 'tom.whitfield@garageplug.com', 'dep_sls', 'Regional Sales Manager',  'G3', 'emp_1001', 'cc_ccsls01', 'London', '2023-04-18', ['employee']],
+
 ];
 
-const HEADS = [['dep_sls', 'emp_1001'], ['dep_fin', 'emp_1002'], ['dep_hrt', 'emp_1004'], ['dep_adm', 'emp_1000']];
+const HEADS = [['dep_adm', 'emp_1000']];
 
 export async function seedStaging({ quiet = false, reason = 'seed:staging', client: existing = null } = {}) {
   const log = quiet ? () => {} : (s) => console.log(s);
@@ -145,10 +137,10 @@ export async function seedStaging({ quiet = false, reason = 'seed:staging', clie
   log(`  company          → ${COMPANY.name}`);
   log(`  departments      → ${DEPARTMENTS.length}`);
   log(`  cost centers     → ${COST_CENTERS.length}`);
-  log(`  employees        → ${EMPLOYEES.length} (6 Sales active, incl. the manager)`);
-  log(`  accounts         → ${EMPLOYEES.length}, email_otp identity each`);
+  log(`  employees        → ${EMPLOYEES.length}`);
+  log(`  accounts         → ${EMPLOYEES.length}, password identity each`);
   log('');
-  log('  ⚠ 4 employees have no manager (BD-02 unsigned) — Vikram Shetty among them.');
+  log('  Only the temporary admin is seeded; add real employees through the app.');
   log('    Their own travel requests will be refused with 422 no_approval_route.');
 
   return { employees: EMPLOYEES.length };

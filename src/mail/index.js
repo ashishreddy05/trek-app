@@ -1,8 +1,5 @@
-/* Email — password links and (later) notifications. OTP delivery has been removed.
- *
- * PROVISIONAL — Slot 5 (email provider) is unsigned. Resend is recommended for Vercel
- * (one API key, one domain verification); Postmark is also supported. Both are plain
- * HTTPS calls with no SDK.
+/* Email service — password links and notifications.
+ * Supports Resend, Postmark, Console, and Disabled drivers via plain HTTPS calls.
  *
  * MAIL_DRIVER=disabled is allowed: sign-in still works, but "Forgot password" and
  * "Email sign-in link" can't send anything, and links must be issued by an operator

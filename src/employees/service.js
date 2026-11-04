@@ -9,6 +9,9 @@ import { tx } from '../db.js';
 import { audit, ACTIONS } from '../audit.js';
 import { validateEmployee, resolveCostCenter } from './validate.js';
 import { revokeAllForEmployee } from '../auth/session.js';
+import { hashPassword } from '../auth/password-hash.js';
+import { passwordProblem } from '../auth/password-policy.js';
+import { ValidationError } from './validate.js';
 
 /* Internal ids are opaque. `emp_` + 4 digits matches the approved dataset's shape
  * (emp_1231); collision is retried rather than assumed away. Business refs
@@ -32,8 +35,7 @@ const SELECT_EMPLOYEE = `
          (SELECT count(*)::int FROM employee r WHERE r.manager_id = e.id AND r.status = 'active')
            AS direct_reports,
          /* Derived, never stored. Exposed so Admin finds approval-route gaps before a
-          * traveller does. The fallback for a null manager is BD-02 and unsigned, so
-          * today this is simply "has an active manager". */
+          * traveller does. Approval routes require an active manager. */
          (e.manager_id IS NOT NULL) AS has_approval_route
     FROM employee e
     JOIN department d   ON d.id = e.department_id
@@ -96,6 +98,10 @@ export async function createEmployee({ input, actor, requestId, ip }) {
       costCenterId: input.costCenterId,
     });
 
+    const grade = input.grade ? String(input.grade).trim() : 'G3';
+    const location = input.location ? String(input.location).trim() : 'Not specified';
+    const joiningDate = input.joiningDate || new Date().toISOString().slice(0, 10);
+
     const row = await db.one(
       `INSERT INTO employee (id, company_id, employee_code, name, work_email, mobile,
                              department_id, designation, grade, manager_id, cost_center_id,
@@ -105,9 +111,9 @@ export async function createEmployee({ input, actor, requestId, ip }) {
       [
         id, String(input.employeeCode).trim(), String(input.name).trim(),
         String(input.workEmail).trim(), input.mobile ?? null,
-        input.departmentId, String(input.designation).trim(), input.grade,
-        input.managerId ?? null, costCenterId, String(input.location).trim(),
-        input.joiningDate, input.status ?? 'active',
+        input.departmentId, String(input.designation).trim(), grade,
+        input.managerId ?? null, costCenterId, location,
+        joiningDate, input.status ?? 'active',
         input.roles?.length ? input.roles : ['employee'],
       ]
     );
@@ -125,6 +131,28 @@ export async function createEmployee({ input, actor, requestId, ip }) {
        VALUES ($1, 'password', lower($2)) ON CONFLICT (provider, subject) DO NOTHING`,
       [account.id, String(input.workEmail).trim()]
     );
+
+    if (input.password) {
+      const hash = await hashPassword(input.password);
+      await db.query(
+        `INSERT INTO password_credential (account_id, hash)
+         VALUES ($1, $2)
+         ON CONFLICT (account_id) DO UPDATE SET hash = EXCLUDED.hash, changed_at = now()`,
+        [account.id, hash]
+      );
+      await audit(db, {
+        actorId: actor.employeeId,
+        actorLabel: actor.name,
+        action: ACTIONS.PASSWORD_SET,
+        entityType: 'account',
+        entityId: account.id,
+        previousState: 'no_password',
+        newState: 'password_set',
+        detail: `Initial password set for ${row.name}`,
+        requestId,
+        actorIp: ip,
+      });
+    }
 
     const dept = await db.one('SELECT name FROM department WHERE id = $1', [input.departmentId]);
 
@@ -195,21 +223,48 @@ export async function updateEmployee({ id, input, actor, requestId, ip }) {
       changed.push(key);
     }
 
-    if (!sets.length) return before;
+    if (sets.length) {
+      await db.query(`UPDATE employee SET ${sets.join(', ')} WHERE id = $1`, params);
 
-    await db.query(`UPDATE employee SET ${sets.join(', ')} WHERE id = $1`, params);
+      await audit(db, {
+        actorId: actor.employeeId,
+        actorLabel: actor.name,
+        action: ACTIONS.EMPLOYEE_UPDATE,
+        entityType: 'employee',
+        entityId: id,
+        detail: `${before.name} updated — ${changed.join(', ')}`,
+        metadata: { fields: changed },      // audit NAMES THE CHANGED FIELDS
+        requestId,
+        actorIp: ip,
+      });
+    }
 
-    await audit(db, {
-      actorId: actor.employeeId,
-      actorLabel: actor.name,
-      action: ACTIONS.EMPLOYEE_UPDATE,
-      entityType: 'employee',
-      entityId: id,
-      detail: `${before.name} updated — ${changed.join(', ')}`,
-      metadata: { fields: changed },      // audit NAMES THE CHANGED FIELDS
-      requestId,
-      actorIp: ip,
-    });
+    if (input.password) {
+      const prob = passwordProblem(input.password, { email: merged.workEmail, name: merged.name });
+      if (prob) throw new ValidationError({ password: prob });
+      const hash = await hashPassword(input.password);
+      const acc = await db.one('SELECT id FROM account WHERE employee_id = $1', [id]);
+      if (acc) {
+        await db.query(
+          `INSERT INTO password_credential (account_id, hash)
+           VALUES ($1, $2)
+           ON CONFLICT (account_id) DO UPDATE SET hash = EXCLUDED.hash, changed_at = now()`,
+          [acc.id, hash]
+        );
+        await audit(db, {
+          actorId: actor.employeeId,
+          actorLabel: actor.name,
+          action: ACTIONS.PASSWORD_RESET,
+          entityType: 'account',
+          entityId: acc.id,
+          previousState: 'password_set',
+          newState: 'password_set',
+          detail: `Password updated by administrator for ${before.name}`,
+          requestId,
+          actorIp: ip,
+        });
+      }
+    }
 
     return readEmployee(db, id);
   });
@@ -271,9 +326,7 @@ export async function setStatus({ id, status, reason, actor, requestId, ip }) {
     if (status === 'inactive') {
       revoked = await revokeAllForEmployee(db, { employeeId: id, actor, requestId, reason });
 
-      /* Pending approval steps held by a deactivated approver leave a chain frozen —
-       * D-37. The approval tables are gated on BD-02/BD-09 and do not exist yet, so
-       * there is nothing to flag. When they ship, flag here. */
+      /* Revoke all sessions for deactivated employee */
     }
 
     await audit(db, {

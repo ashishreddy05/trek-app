@@ -1,14 +1,12 @@
-/* PostgreSQL access. Raw SQL through `pg`.
- *
- * No ORM: ST-02 is unsigned, and choosing one here would be a decision this repo is
- * not entitled to make. The SQL in each module's queries is the specification to port
- * if an ORM is signed later.
- */
+/* PostgreSQL access. Direct SQL through `pg` connection pool and transactions. */
 
 import pg from 'pg';
 import { config } from './config.js';
 import { log } from './logging.js';
 import { expectedMigrations } from './migrations.js';
+
+// Return Postgres DATE (OID 1082) as exact 'YYYY-MM-DD' string rather than local midnight Date.
+pg.types.setTypeParser(1082, (val) => val);
 
 const { Pool } = pg;
 

@@ -1,13 +1,7 @@
 /* Trek — production stylesheet.
  *
- * Design language transcribed from the approved prototypes (Travel Expenses App,
- * Trek Admin Console). Colours, type scale and spacing are the approved values.
- * This is a recreation of the approved design, not a redesign.
- *
- * PROVISIONAL — Slot 1 (frontend framework) is unsigned. Plain CSS + plain JS with
- * no build step is the choice that keeps Slot 1 open: there is no framework to
- * migrate off, the same reasoning that put raw SQL behind ST-02. If Slot 1 signs
- * React/Next, this file is the visual specification to port.
+ * Design system tokens, responsive layout, cards, drawers, tables, pills,
+ * and forms for the Trek Travel & Expenses web client.
  */
 
 :root {
@@ -95,6 +89,8 @@ input, select, textarea { font: inherit; color: inherit; }
 
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .field label { font-size: 13px; font-weight: 500; color: var(--ink-72); }
+.field label .req { color: var(--danger); margin-left: 2px; font-weight: 600; }
+.field label .opt { font-weight: 400; font-size: 12px; color: var(--ink-50); margin-left: 4px; }
 .field .hint { font-size: 12px; color: var(--ink-50); }
 
 .field input, .field select, .field textarea {
@@ -111,6 +107,16 @@ input, select, textarea { font: inherit; color: inherit; }
   box-shadow: 0 0 0 3px var(--mint-soft);
 }
 .field input:disabled { background: var(--canvas); color: var(--ink-50); }
+
+.password-input { position: relative; }
+.password-input input { padding-right: 48px; }
+.password-toggle {
+  position: absolute; top: 0; right: 0; height: 100%; width: 44px;
+  display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-62);
+}
+.password-toggle:hover { color: var(--green); }
+.password-toggle:focus-visible { outline: 2px solid var(--green); outline-offset: -4px; border-radius: var(--r-sm); }
+.password-toggle svg { width: 20px; height: 20px; }
 
 .field.invalid input, .field.invalid select {
   border-color: var(--warn);
@@ -181,8 +187,7 @@ input, select, textarea { font: inherit; color: inherit; }
 }
 .nav-item:hover { background: rgba(255, 255, 255, .07); color: #fff; }
 .nav-item.active { background: rgba(255, 255, 255, .13); color: #fff; font-weight: 500; }
-.nav-item.blocked { color: rgba(255, 255, 255, .3); cursor: not-allowed; }
-.nav-item.blocked:hover { background: transparent; color: rgba(255, 255, 255, .3); }
+
 .nav-section {
   padding: 0 10px; margin-top: 6px;
   font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
@@ -259,6 +264,21 @@ tbody tr.clickable:hover { background: var(--canvas); }
 
 /* ============================================================ drawer (B17) */
 
+.modal-scrim {
+  position: fixed; inset: 0;
+  background: rgba(6, 52, 42, .32);
+  display: grid; place-items: center;
+  z-index: 50; padding: 20px;
+}
+.modal-card {
+  width: 100%; max-width: 480px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+}
+
 .drawer-scrim {
   position: fixed; inset: 0;
   background: rgba(6, 52, 42, .28);
@@ -330,27 +350,6 @@ tbody tr.clickable:hover { background: var(--canvas); }
   font-size: 13px; color: var(--ink-72);
 }
 
-/* ============================================================ gated notice */
-
-/* Screens blocked on an unsigned decision say so, precisely. They are never
- * stubbed with fake data — a plausible-looking empty trip list would be a lie. */
-.gated {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--warn);
-  border-radius: var(--r-md);
-  padding: 22px 24px;
-  max-width: 620px;
-}
-.gated h2 { margin: 0 0 8px; font-size: 16px; font-weight: 600; }
-.gated p { margin: 0 0 12px; font-size: 13.5px; color: var(--ink-72); }
-.gated ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--ink-72); }
-.gated li { margin-bottom: 5px; }
-.gated code {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12.5px; background: var(--canvas);
-  padding: 1px 5px; border-radius: 4px;
-}
 
 /* ============================================================ toast */
 

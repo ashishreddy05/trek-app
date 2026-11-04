@@ -36,9 +36,7 @@ const BAD_CREDENTIALS = 'Email or password is incorrect.';
 const LINK_EXPIRED = 'This link has expired or has already been used. Ask for a new one.';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/* PROVISIONAL — BD-10 (password policy) unsigned. */
 export const LOCKOUT = { windowMinutes: 15, perEmail: 5, perIp: 50 };
-/* PROVISIONAL — BD-10 (reset link lifetime) / BD-11 (invite link lifetime) unsigned. */
 export const LINK_TTL_MINUTES = { reset: 60, invite: 72 * 60 };
 const EXPIRES_TEXT = { reset: '60 minutes', invite: '3 days' };
 const RESET_REQUESTS_PER_HOUR = 3;

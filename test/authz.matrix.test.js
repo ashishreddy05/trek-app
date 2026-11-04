@@ -178,9 +178,9 @@ describe('role boundaries', () => {
     assert.ok(!P.SARA.permissions.includes('expense.review'));
   });
 
-  test('Admin is NOT an approver — configuration is not authority', () => {
-    assert.ok(!P.ASHISH.permissions.includes('trip.approve'));
-    assert.ok(!P.ASHISH.permissions.includes('expense.approve'));
+  test('Admin holds company-wide review and approval authority', () => {
+    assert.ok(P.ASHISH.permissions.includes('trip.approve'));
+    assert.ok(P.ASHISH.permissions.includes('expense.approve'));
   });
 
   test('Finance cannot manage employees', () => {
@@ -231,14 +231,19 @@ describe('landing surface is server-derived', () => {
 
 /* ------------------------------------------------------------------ gated */
 
-describe('gated operations are absent, not stubbed', () => {
-  test('trip, expense and settlement operations are not declared yet', () => {
-    for (const op of ['trip.create', 'trip.submit', 'approval.decide', 'expense.create', 'settlement.post']) {
+describe('gated and pilot operations', () => {
+  test('settlement operations remain undeclared (not in pilot)', () => {
+    for (const op of ['settlement.post']) {
       assert.equal(
         OPERATIONS[op], undefined,
-        `"${op}" must stay undeclared until its blocking decision is signed (see GATED.md) — ` +
-        'declaring it early means guessing at a scope rule'
+        `"${op}" must stay undeclared until its blocking decision is signed (see GATED.md)`
       );
+    }
+  });
+
+  test('pilot operations are properly declared with explicit scopes', () => {
+    for (const op of ['trip.create', 'trip.submit', 'trip.decide', 'expense.create', 'expense.decide']) {
+      assert.ok(OPERATIONS[op], `"${op}" should be declared for the pilot`);
     }
   });
 });

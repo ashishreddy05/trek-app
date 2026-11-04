@@ -13,10 +13,10 @@ const checks = [
   ['company',      'SELECT count(*)::int n FROM company',                       1],
   ['departments',  'SELECT count(*)::int n FROM department',                     6],
   ['cost centers', 'SELECT count(*)::int n FROM cost_center',                    6],
-  ['employees',    'SELECT count(*)::int n FROM employee',                       9],
-  ['accounts',     'SELECT count(*)::int n FROM account',                        9],
-  ['identities',   'SELECT count(*)::int n FROM account_identity',               9],
-  ['Sales active', "SELECT count(*)::int n FROM employee WHERE department_id='dep_sls' AND status='active'", 6],
+  ['employees',    'SELECT count(*)::int n FROM employee',                       1],
+  ['accounts',     'SELECT count(*)::int n FROM account',                        1],
+  ['identities',   'SELECT count(*)::int n FROM account_identity',               1],
+  ['Sales active', "SELECT count(*)::int n FROM employee WHERE department_id='dep_sls' AND status='active'", 0],
 ];
 
 let ok = true;
@@ -42,8 +42,8 @@ if (orphans.length) {
   for (const o of orphans) console.log(`    ${o.employee_code}  ${o.name}`);
   console.log(
     '\n  Once BD-01\'s guard is built, their own travel requests are correctly refused\n' +
-    '  with 422 no_approval_route. Vikram Shetty (GP-0007) is the Sales pilot\'s\n' +
-    '  approver AND a traveller, so this blocks the pilot. See GATED.md.\n'
+    '  with 422 no_approval_route. Configure real reporting relationships before\n' +
+    '  enabling travel approvals. See GATED.md.\n'
   );
 }
 

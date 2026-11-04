@@ -42,10 +42,12 @@ describe('required fields', () => {
 
   test('each required field is reported by name', async () => {
     const fields = await fieldsFrom({});
-    for (const k of ['employeeCode', 'name', 'workEmail', 'departmentId',
-                     'designation', 'grade', 'location', 'joiningDate']) {
+    for (const k of ['employeeCode', 'name', 'workEmail', 'departmentId', 'designation']) {
       assert.ok(fields[k], `${k} should be reported as required`);
     }
+    assert.equal(fields.grade, undefined);
+    assert.equal(fields.location, undefined);
+    assert.equal(fields.joiningDate, undefined);
   });
 
   test('whitespace does not satisfy a required field', async () => {

@@ -7,6 +7,8 @@
  * uniqueness/cycle checks are mechanical.
  */
 
+import { passwordProblem } from '../auth/password-policy.js';
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GRADES = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6'];
 const ROLES = ['employee', 'manager', 'hr_travel', 'finance', 'admin'];
@@ -17,9 +19,6 @@ const REQUIRED = [
   ['workEmail', 'Work email is required'],
   ['departmentId', 'Department is required'],
   ['designation', 'Designation is required'],
-  ['grade', 'Grade is required'],
-  ['location', 'Location is required'],
-  ['joiningDate', 'Joining date is required'],
 ];
 
 export class ValidationError extends Error {
@@ -46,6 +45,11 @@ export async function validateEmployee(db, input, existingId = null) {
 
   if (input.workEmail && !EMAIL_RE.test(String(input.workEmail).trim())) {
     fields.workEmail = 'Enter a valid work email address';
+  }
+
+  if (input.password) {
+    const prob = passwordProblem(input.password, { email: input.workEmail, name: input.name });
+    if (prob) fields.password = prob;
   }
 
   if (input.grade && !GRADES.includes(input.grade)) {

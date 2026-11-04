@@ -1,8 +1,8 @@
 /* Request handler, shared by two entry points:
- *   src/http/server.js   long-running Node server (local dev, Docker)
+ *   src/http/server.js   long-running Node server (local dev)
  *   api/[...path].js     Vercel serverless function
  *
- * No framework (ST-02 unsigned). Handlers are plain (ctx) => response.
+ * Lightweight vanilla HTTP dispatcher with zero external HTTP frameworks.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -26,6 +26,13 @@ import {
   patchEmployeeStatus, postEmployeeImport, postEmployeeInvite,
   getDepartments, postDepartment, patchDepartment, getCostCenters, getAudit,
 } from './routes.admin.js';
+import {
+  getTrips, getTrip, postTrip, patchTrip, postSubmitTrip, postDecideTrip,
+} from './routes.trips.js';
+import {
+  getExpenses, getExpense, postExpense, patchExpense, deleteExpense,
+  postSubmitExpense, postDecideExpense,
+} from './routes.expenses.js';
 
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 
@@ -54,6 +61,21 @@ const ROUTES = [
   ['GET',   '/api/v1/cost-centers',           getCostCenters],
 
   ['GET',   '/api/v1/audit',                  getAudit],
+
+  ['GET',    '/api/v1/trips',                 getTrips],
+  ['POST',   '/api/v1/trips',                 postTrip],
+  ['GET',    '/api/v1/trips/:id',             getTrip],
+  ['PATCH',  '/api/v1/trips/:id',             patchTrip],
+  ['POST',   '/api/v1/trips/:id/submit',      postSubmitTrip],
+  ['POST',   '/api/v1/trips/:id/decide',      postDecideTrip],
+
+  ['GET',    '/api/v1/expenses',              getExpenses],
+  ['POST',   '/api/v1/expenses',              postExpense],
+  ['GET',    '/api/v1/expenses/:id',          getExpense],
+  ['PATCH',  '/api/v1/expenses/:id',          patchExpense],
+  ['DELETE', '/api/v1/expenses/:id',          deleteExpense],
+  ['POST',   '/api/v1/expenses/:id/submit',   postSubmitExpense],
+  ['POST',   '/api/v1/expenses/:id/decide',   postDecideExpense],
 ];
 
 /* Literal routes are matched before parameterised ones, so /employees/import is never
@@ -191,7 +213,7 @@ function errorResponse(err) {
   if (err instanceof ValidationError || (err.status === 422 && err.fields)) {
     return { status: 422, body: { error: { code: 'validation_failed', message: err.message, fields: err.fields } } };
   }
-  if (err instanceof AuthError || err instanceof AuthzError) {
+  if (err instanceof AuthError || err instanceof AuthzError || (err.status && err.code)) {
     return { status: err.status, body: { error: { code: err.code, message: err.message, ...(err.extra ?? {}) } } };
   }
   if (err.message === 'bad_json') {

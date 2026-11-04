@@ -32,6 +32,8 @@ export const PERMISSIONS_BY_ROLE = {
     'employee.manage', 'department.manage', 'costcenter.manage',
     'policy.manage', 'workflow.manage', 'role.manage',
     'audit.read', 'report.all',
+    'trip.read.all', 'trip.approve',
+    'expense.read.all', 'expense.approve',
   ],
 };
 
@@ -78,22 +80,29 @@ export const OPERATIONS = {
   'audit.read':    { scopes: { all: 'audit.read' } },
   'activity.read': { scopes: { own: null, team: 'trip.read.team', all: 'trip.read.all' } },
 
-  /* ======================================================================
-   * GATED — declared so the shape is reviewable, but the operations they
-   * govern are not implemented. Do not build against these until the named
-   * decision is signed. See GATED.md.
-   * ====================================================================== */
-  // 'trip.create'          BD-06/07  band + country code
-  // 'trip.submit'          BD-02/09  approval route resolution
-  // 'approval.decide'      BD-02/09
-  // 'expense.create'       BD-08     category + payment mode enums
-  // 'settlement.post'      ST-03     money type
+  // ---- trips (pilot) ----
+  'trip.list':   { scopes: { own: 'trip.read.own', team: 'trip.read.team', all: 'trip.read.all' } },
+  'trip.read':   { scopes: { own: 'trip.read.own', team: 'trip.read.team', all: 'trip.read.all' } },
+  'trip.create': { scopes: { own: 'trip.create' } },
+  'trip.update': { scopes: { own: 'trip.create' } },
+  'trip.submit': { scopes: { own: 'trip.create' } },
+  'trip.decide': { scopes: { team: 'trip.approve', all: 'trip.approve' }, selfForbidden: true },
+
+  // ---- expenses (pilot) ----
+  'expense.list':   { scopes: { own: 'expense.read.own', team: 'expense.read.team', all: 'expense.read.all', finance: 'expense.read.all' } },
+  'expense.read':   { scopes: { own: 'expense.read.own', team: 'expense.read.team', all: 'expense.read.all', finance: 'expense.read.all' } },
+  'expense.create': { scopes: { own: 'expense.create' } },
+  'expense.update': { scopes: { own: 'expense.create' } },
+  'expense.delete': { scopes: { own: 'expense.create' } },
+  'expense.submit': { scopes: { own: 'expense.create' } },
+  'expense.decide': { scopes: { team: 'expense.approve', all: 'expense.approve' }, selfForbidden: true },
+
 };
 
 /* Operations whose target is another employee's record and which must therefore
  * return 404 (not 403) when out of scope, so ids are not an enumeration oracle. */
 export const OPAQUE_ON_DENY = new Set([
-  'employee.read', 'activity.read',
+  'employee.read', 'activity.read', 'trip.read', 'expense.read',
 ]);
 
 export function permissionsFor(roles) {

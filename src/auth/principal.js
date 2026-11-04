@@ -2,9 +2,6 @@
  *
  * The employee record is the sole source of identity. This module turns a session into
  * the principal the rest of the system authorises against.
- *
- * Survives an ST-05 change: if an auth provider is bought instead of built, otp.js and
- * session.js are replaced and this file is untouched.
  */
 
 import { PERMISSIONS_BY_ROLE } from '../authz/permissions.js';
