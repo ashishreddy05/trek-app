@@ -392,21 +392,29 @@ export async function decideTrip({ id, decision, reason, actor, requestId, ip })
 /* ------------------------------------------------------------------ budget */
 
 /**
- * The exchange rate for a currency on this trip, taken from the forex plan.
+ * The exchange rate for a currency on this trip, taken from the currency plan.
  *
  * Every money row stores the rate it used, so a later change to the plan never
  * rewrites money that was already budgeted, spent or issued.
+ *
+ * Spending in the trip's own base currency needs no plan row: converting the
+ * base currency to itself is the identity. A plan row for it, if present, is
+ * still honoured — the traveller stated the rate.
  */
 async function rateFor(client, tripId, currency) {
   const row = await client.one(
-    'SELECT rate_to_base FROM trip_fx_plan WHERE trip_id = $1 AND currency = $2',
+    `SELECT f.rate_to_base, t.base_currency
+       FROM trip t LEFT JOIN trip_fx_plan f ON f.trip_id = t.id AND f.currency = $2
+      WHERE t.id = $1`,
     [tripId, currency]
   );
   if (!row) {
-    throw new WorkflowError(422, 'validation_failed',
-      `No exchange rate is set for ${currency} on this trip. Add it to the currency plan first.`);
+    throw new WorkflowError(422, 'validation_failed', 'This trip no longer exists.');
   }
-  return row.rate_to_base;
+  if (row.rate_to_base) return row.rate_to_base;
+  if (currency === row.base_currency) return '1.00000000';
+  throw new WorkflowError(422, 'validation_failed',
+    `No exchange rate is set for ${currency} on this trip. Add it to the currency plan first.`);
 }
 
 export async function addBudgetLine({ tripId, input, actor, requestId, ip }) {

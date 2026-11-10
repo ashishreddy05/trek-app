@@ -82,6 +82,25 @@ export function normaliseAmount(value, { what = 'amount' } = {}) {
   return toDecimalString(minor);
 }
 
+/**
+ * Normalise an amount that may be zero: a fee that does not apply, a cash
+ * requirement of nothing, a forex card that was not loaded.
+ *
+ * "Absent" and "zero" are different things: an absent value means the caller
+ * did not say; zero means the caller said nothing is needed. Only the latter
+ * is written.
+ */
+export function normaliseNonNegativeAmount(value, { what = 'amount' } = {}) {
+  const s = String(value ?? '').trim();
+  if (s === '') return '0.00';
+  if (!AMOUNT_RE.test(s)) {
+    throw new MoneyError(`${what} must be a number with at most 2 decimal places`);
+  }
+  const minor = toMinorUnits(s, { what });
+  if (minor < 0n) throw new MoneyError(`${what} cannot be negative`);
+  return toDecimalString(minor);
+}
+
 /** Normalise a rate for storage: exact decimal string with at most 8 places. */
 export function normaliseRate(value, { what = 'exchange rate' } = {}) {
   const s = String(value ?? '').trim();

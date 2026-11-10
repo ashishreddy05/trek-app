@@ -4,7 +4,7 @@
  * parsed into a JavaScript number. See src/money.js.
  */
 
-import { normaliseAmount, normaliseRate, normaliseCurrency, MoneyError } from '../money.js';
+import { normaliseAmount, normaliseNonNegativeAmount, normaliseRate, normaliseCurrency, MoneyError } from '../money.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -74,11 +74,8 @@ function rate(value, field) {
 
 /** Non-negative money: zero is allowed (a fee that does not apply). */
 function moneyOrZero(value, field) {
-  if (value === undefined || value === null || value === '') return '0.00';
   try {
-    const s = String(value).trim();
-    if (!/^\d+(\.\d{1,2})?$/.test(s)) throw new MoneyError(`${field} must be a number with at most 2 decimal places`);
-    return normaliseAmount(s, { what: field });
+    return normaliseNonNegativeAmount(value, { what: field });
   } catch (err) {
     if (err instanceof MoneyError) throw new ValidationError({ [field]: err.message });
     throw err;

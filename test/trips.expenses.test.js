@@ -159,6 +159,68 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     );
   });
 
+  test('a currency with no rate is refused, but the base currency needs no plan', async () => {
+    /* The trip's own base currency converts to itself: no plan row, rate 1. */
+    const baseTrip = await createTrip({
+      input: {
+        destination: 'Bengaluru, India',
+        purpose: 'Base currency trip',
+        startDate: '2026-12-01',
+        endDate: '2026-12-02',
+        currency: 'INR',
+      },
+      actor: pSuresh,
+      requestId: 'req_base_1',
+      ip: '127.0.0.1',
+    });
+    assert.equal(baseTrip.base_currency, 'INR');
+
+    const line = await addBudgetLine({
+      tripId: baseTrip.id,
+      input: { category: 'travel', description: 'Local travel', amount: '500.00', currency: 'INR' },
+      actor: pSuresh,
+      requestId: 'req_base_2',
+      ip: '127.0.0.1',
+    });
+    assert.equal(line.rate_to_base, '1.00000000');
+    assert.equal(line.base_amount, '500.00');
+
+    /* A different currency still needs its rate. */
+    await assert.rejects(
+      () => addBudgetLine({
+        tripId: baseTrip.id,
+        input: { category: 'food', description: 'Dinner', amount: '100.00', currency: 'AED' },
+        actor: pSuresh,
+        requestId: 'req_base_3',
+        ip: '127.0.0.1',
+      }),
+      (err) => err.status === 422 && /exchange rate/i.test(err.message),
+      'a currency with no rate must not be budgeted'
+    );
+  });
+
+  test('a zero fee is allowed — nothing is different from not needed', async () => {
+    const plan = await setFxPlan({
+      tripId,
+      input: {
+        currency: 'AED',
+        rateToBase: '83.25000000',
+        cashAmount: '2000.00',
+        cardAmount: '0.00',
+        gstAmount: '0.00',
+        topupFee: '0.00',
+        serviceFee: '0.00',
+      },
+      actor: pSuresh,
+      requestId: 'req_zero_1',
+      ip: '127.0.0.1',
+    });
+
+    assert.equal(plan.card_amount, '0.00', 'a forex card that was not loaded is zero');
+    assert.equal(plan.gst_amount, '0.00');
+    assert.equal(plan.service_fee, '0.00');
+  });
+
   test('employee can edit a draft trip', async () => {
     const updated = await updateTrip({
       id: tripId,
