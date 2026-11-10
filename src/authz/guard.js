@@ -111,6 +111,30 @@ export async function authorize(db, principal, operation, target = {}, requestId
     return { scope: target.scope };
   }
 
+  /* A LIST operation has no single target, so "the narrowest scope that covers
+   * the target" is meaningless — there is no target. The caller's widest scope
+   * they actually hold is the answer, and the handler filters by it.
+   *
+   * This is why GET /api/v1/trips without an explicit ?scope= used to return
+   * 403 for employees and managers: there was no target to match `own` against
+   * and no target to look up in the reporting tree. */
+  if (spec.collection) {
+    for (const wide of ['all', 'finance', 'travel']) {
+      const perm = spec.scopes?.[wide];
+      if (perm === undefined) continue;
+      if (perm === null || held.has(perm)) return { scope: wide };
+    }
+    const teamPerm = spec.scopes?.team;
+    if (teamPerm !== undefined && (teamPerm === null || held.has(teamPerm))) {
+      return { scope: 'team', team: await reportingTree(db, principal.employeeId) };
+    }
+    const ownPerm = spec.scopes?.own;
+    if (ownPerm !== undefined && (ownPerm === null || held.has(ownPerm))) {
+      return { scope: 'own' };
+    }
+    deny('no_scope_matched');
+  }
+
   /* Rule 2 + 4: no explicit scope, so derive the narrowest scope that covers the
    * target — checking permission and scope together. */
 

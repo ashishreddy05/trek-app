@@ -191,17 +191,19 @@ Attaches an expense entry to an employee's own trip.
     "tripId": "trp_f24de41cfd5e8c02",
     "date": "2026-12-02",
     "description": "Taxi from Narita Airport to Shinjuku",
-    "category": "transport",
+    "category": "travel",
     "amount": "85.50",
-    "currency": "USD"
+    "currency": "USD",
+    "paymentMethod": "cash"
   }
   ```
 * **Validation**:
-  * `category`: One of `meals`, `lodging`, `transport`, `airfare`, `supplies`, `other`.
+  * `category`: One of `travel`, `accommodation`, `food`, `visa`, `sim_card`, `other` — the same vocabulary the trip budget uses.
   * `amount`: Exact positive decimal string with up to 2 decimal places.
-  * `currency`: 3-letter uppercase ISO currency code.
-  * Caller must own the referenced trip.
-* **Response (201)**: `{ "expense": { ... } }`
+  * `currency`: 3-letter uppercase ISO currency code. The trip must have a currency plan entry for it.
+  * `paymentMethod`: One of `cash`, `forex_card`, `card`, `bank_transfer`. Defaults to `cash`.
+  * Caller must own the referenced trip, and the trip must be `active` — money cannot be claimed against a trip nobody approved and funded.
+* **Response (201)**: `{ "expense": { ... } }`, including `base_amount` and `rate_to_base`.
 
 ### `PATCH /api/v1/expenses/:id`
 Edits a draft expense entry. Refuses with `409 Conflict` if already submitted or approved.
@@ -226,7 +228,138 @@ Approves or rejects an expense entry.
 
 ---
 
-## 5. Administration Endpoints
+## 5. Budget, Currency Plan & Funds
+
+### `GET /api/v1/trips/:id/budget`
+The trip's estimated-expense lines and the frozen approved budget.
+* **Response (200)**: `{ "lines": [ ... ], "approvedBudgetBase": "166500.00" }`
+
+### `POST /api/v1/trips/:id/budget`
+Adds one estimated-expense line.
+* **Payload**: `{ "category": "accommodation", "description": "Hotel, 4 nights", "amount": "2000.00", "currency": "AED" }`
+* **Rules**:
+  * The traveller owns the trip, and the trip is `draft` or `changes_requested`.
+  * The currency must have a rate in the trip's currency plan, or the request is refused with `422` — a currency without a rate cannot be converted, and guessing is worse than refusing.
+  * `base_amount` is computed from the plan's rate and stored.
+* **Response (201)**: `{ "line": { ... } }`
+
+### `DELETE /api/v1/trips/:id/budget/:lineId`
+Removes a budget line. Draft trips only.
+
+### `GET /api/v1/trips/:id/forex`
+The trip's currency plan — cash, forex card, rate and charges per currency.
+
+### `PUT /api/v1/trips/:id/forex`
+Sets (or replaces) the plan for one currency.
+* **Payload**:
+  ```json
+  {
+    "currency": "AED",
+    "rateToBase": "83.25000000",
+    "cashAmount": "2000.00",
+    "cardAmount": "15000.00",
+    "gstAmount": "900.00",
+    "topupFee": "450.00",
+    "serviceFee": "150.00"
+  }
+  ```
+* **Rules**: charges are in the base currency. The rate is how many base-currency units one unit of this currency buys. Amounts of zero are allowed; a rate of zero is not.
+
+### `DELETE /api/v1/trips/:id/forex/:planId`
+Removes a currency from the plan. Draft trips only.
+
+### `GET /api/v1/trips/:id/funds`
+The funds issued against the trip.
+
+### `POST /api/v1/trips/:id/funds`
+Records funds handed over — cash, a forex card, or an additional tranche.
+* **Payload**: `{ "kind": "forex_card", "amount": "15000.00", "currency": "AED", "note": "Emirates forex card" }`
+* **Rules**:
+  * Finance or Admin only. A manager cannot issue funds.
+  * The trip must be `approved` or `active`.
+  * The FIRST allocation moves the trip to `active`, which is when expenses may be recorded.
+* **Response (201)**: `{ "fund": { ... } }`
+
+---
+
+## 6. Bills (Receipts)
+
+### `GET /api/v1/expenses/:id/bills`
+The receipts attached to an expense.
+
+### `POST /api/v1/expenses/:id/bills`
+Uploads a receipt.
+* **Payload** (base64 so it travels through the same body path as everything else — no multipart parser):
+  ```json
+  {
+    "filename": "hotel-folio.pdf",
+    "contentType": "application/pdf",
+    "content": "JVBERi0xLjQK..."
+  }
+  ```
+* **Rules**:
+  * The caller owns the expense.
+  * `contentType` must be an image type or `application/pdf`.
+  * At most 5 MB.
+* **Response (201)**: `{ "bill": { ... } }` with the SHA-256 of the bytes.
+
+### `GET /api/v1/bills/:id/content`
+The receipt's bytes, with its original content type and filename.
+
+### `DELETE /api/v1/bills/:id`
+Deletes a receipt. The caller owns the underlying expense.
+
+---
+
+## 7. Reconciliation & Settlement
+
+### `GET /api/v1/trips/:id/reconciliation`
+The reconciliation snapshot, if one exists.
+
+### `POST /api/v1/trips/:id/reconciliation`
+The traveller submits the trip for reconciliation.
+* **Payload**: `{ "note": "All receipts attached" }`
+* **Rules**:
+  * The trip must be `active`.
+  * No expense may still be awaiting approval: money in flight would make the balance wrong.
+  * Computes `funds_base` (sum of funds issued), `expenses_base` (sum of APPROVED expenses) and `balance_base` (the difference), and stores them. A positive balance is money to return; a negative one is money the company owes the traveller.
+  * Moves the trip to `reconciliation_pending`.
+
+### `POST /api/v1/trips/:id/reconciliation/decide`
+Finance approves or sends back the reconciliation.
+* **Payload**: `{ "decision": "approve" }` or `{ "decision": "reject", "reason": "The airport receipt is missing" }`
+* **Rules**:
+  * Finance or Admin only.
+  * Rejection requires a reason and reopens the trip as `active`, so the traveller can fix it and resubmit.
+
+### `POST /api/v1/trips/:id/settle`
+Records the settlement and closes the trip.
+* **Payload**: `{ "note": "Balance recovered by transfer" }`
+* **Rules**: the trip must be `reconciled`. The trip becomes `closed`.
+
+---
+
+## 8. Reporting
+
+### `GET /api/v1/dashboard`
+Trip budgets, approvals outstanding, spend, pending settlements and employee-wise totals — scoped to what the caller may see (their reporting tree, or the company for Finance and Admin).
+* **Response (200)**:
+  ```json
+  {
+    "scope": "all",
+    "totals": { "trips": 5, "awaiting_approval": 1, "spent_base": "330502.50", "funds_base": "333000.00" },
+    "trips": [ ... ],
+    "employees": [ ... ],
+    "settlements": [ ... ]
+  }
+  ```
+
+### `GET /api/v1/reports/export.csv?kind=employees|trips`
+The report as CSV — RFC 4180 quoting, so it opens in Excel and Numbers without a converter.
+
+---
+
+## 9. Administration Endpoints
 
 ### `GET /api/v1/employees`
 Lists employees with optional filters (`departmentId`, `status`, `search`).

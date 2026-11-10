@@ -39,6 +39,16 @@ export const ACTIONS = {
   TRIP_SUBMIT: 'trip.submit',
   TRIP_APPROVE: 'trip.approve',
   TRIP_REJECT: 'trip.reject',
+  TRIP_REQUEST_CHANGES: 'trip.request_changes',
+  TRIP_RESUBMIT: 'trip.resubmit',
+  // budget & forex plan
+  TRIP_BUDGET_ADD: 'trip.budget.add',
+  TRIP_BUDGET_UPDATE: 'trip.budget.update',
+  TRIP_BUDGET_REMOVE: 'trip.budget.remove',
+  TRIP_FX_SET: 'trip.fx.set',
+  TRIP_FX_REMOVE: 'trip.fx.remove',
+  // funds issued
+  TRIP_FUND_ISSUE: 'trip.fund.issue',
   // expenses
   EXPENSE_CREATE: 'expense.create',
   EXPENSE_UPDATE: 'expense.update',
@@ -46,6 +56,14 @@ export const ACTIONS = {
   EXPENSE_SUBMIT: 'expense.submit',
   EXPENSE_APPROVE: 'expense.approve',
   EXPENSE_REJECT: 'expense.reject',
+  // bills (receipts)
+  BILL_UPLOAD: 'bill.upload',
+  BILL_DELETE: 'bill.delete',
+  // reconciliation & settlement
+  TRIP_RECONCILE_SUBMIT: 'trip.reconcile.submit',
+  TRIP_RECONCILE_APPROVE: 'trip.reconcile.approve',
+  TRIP_RECONCILE_REJECT: 'trip.reconcile.reject',
+  TRIP_SETTLE: 'trip.settle',
   // authz
   AUTHZ_DENIED: 'authz.denied',
 };

@@ -6,26 +6,57 @@ The application is deployed serverless on **Vercel** and backed by **Neon Postgr
 
 ---
 
+## The Workflow
+
+```
+Trip Creation → Budget Preparation → Approval → Fund Allocation
+  → Daily Expense Tracking & Bill Upload → Final Reconciliation
+  → Finance Approval → Settlement & Trip Closure
+```
+
+| Stage | Who | What happens |
+| :--- | :--- | :--- |
+| Trip creation | Employee | Destination, purpose, dates, destination currency. |
+| Budget preparation | Employee | Estimated-expense lines (travel, accommodation, food, visa, SIM card, other) and the **currency plan**: cash to carry, forex card to load, the exchange rate, GST, top-up and service fees. |
+| Approval | Manager (or Finance) | Approve, reject with a reason, or **request changes** — which sends the trip back to the traveller, who edits and resubmits. |
+| Fund allocation | Finance | Cash, a forex card, or an additional tranche. The first allocation activates the trip. |
+| Daily expenses | Employee | Expenses with date, category, description, amount, currency and **payment method**, each with receipts attached. |
+| Reconciliation | Employee → Finance | The system computes funds received, actual spend, and the balance: money to return, or money the company owes. |
+| Settlement | Finance | Records the settlement and closes the trip. |
+
+---
+
 ## Key Features
 
-1. **Travel & Multi-Currency Trip Planning**:
-   * Create, manage, and edit draft trips with destination, business purpose, date validation, and destination currency selection (USD, EUR, GBP, SAR, AED, INR, SGD, JPY, etc.).
-   * Submit trips for manager review with automatic approval route verification.
+1. **Budget & currency planning**:
+   * Estimated-expense lines per trip, in any currency, converted at the trip's own rate.
+   * Cash and forex-card requirements, exchange rate, GST, forex top-up charges and other service fees, per currency.
+   * **Entered rates, not fetched ones**: no FX provider is integrated, and no rate is ever applied twice.
 
-2. **Exact Decimal Expense Tracking**:
-   * Itemize expenses per trip with date, description, category (`meals`, `lodging`, `transport`, `airfare`, `supplies`, `other`), and exact transaction currency.
-   * **Zero Floating-Point Arithmetic**: Stored as exact `NUMERIC(14,2)` in PostgreSQL and handled as exact decimal strings in JavaScript using minor units.
-   * Multi-currency expense aggregation per trip without artificial exchange conversions.
+2. **Exact decimal money, everywhere**:
+   * **Zero Floating-Point Arithmetic**: amounts are `NUMERIC(14,2)` in PostgreSQL and exact decimal strings in JavaScript, using BigInt minor units.
+   * Every conversion is a **snapshot** — the rate used is stored with the row, so changing a rate later never rewrites money that was already budgeted, spent or issued.
+   * One category vocabulary shared by budget and expenses, so budget-versus-actual compares like with like.
 
-3. **Hierarchical Manager & Admin Review**:
-   * Review queue scoped strictly to an employee's management hierarchy resolved dynamically via recursive CTE.
-   * Self-approval and out-of-scope decisions are strictly forbidden.
-   * Decision audit trails with mandatory rejection reasons.
+3. **Hierarchical approval & Finance control**:
+   * The review queue is scoped to the reporting hierarchy, resolved per request by recursive CTE.
+   * **Company-wide authority is a different permission from team authority.** A manager approves within their reporting tree; only Finance and Admin can approve company-wide. This split is what stops one manager approving another manager's report.
+   * Self-approval and out-of-scope decisions are forbidden. Rejections and change requests carry a mandatory reason.
 
-4. **Security, Scoping & Immutability**:
-   * Role and scope-based server-side authorization (`own`, `team`, `all`).
-   * **Opaque Denial**: Unauthorized access to another user's record returns `404 Not Found` (byte-identical to non-existent records) to prevent ID enumeration.
-   * Append-only `audit_event` table protected by PostgreSQL triggers refusing `UPDATE` and `DELETE`.
+4. **Receipts, reconciliation & settlement**:
+   * Receipts (photo or PDF) attach to an expense and are listed per trip.
+   * Reconciliation snapshots the funds issued against the approved spend, so a decision is made against fixed numbers.
+   * The balance tells you who owes whom.
+
+5. **Security, scoping & immutability**:
+   * Role and scope-based server-side authorization (`own`, `team`, `all`), resolved by one guard.
+   * **Opaque denial**: out-of-scope reads return `404 Not Found`, byte-identical to a nonexistent record, so ids cannot be enumerated.
+   * Append-only `audit_event`, protected by PostgreSQL triggers refusing `UPDATE` and `DELETE`.
+   * The app runs against a least-privilege database role that cannot rewrite history.
+
+6. **Reporting**:
+   * A dashboard of trip budgets, approvals outstanding, spend, pending settlements and employee-wise totals.
+   * CSV export of the same figures, for Excel.
 
 ---
 
@@ -86,9 +117,11 @@ Trek uses Node.js's native test runner (`node:test`) against an isolated test da
 # Run security scanning
 npm run check:no-bypass
 
-# Run full test suite (118 tests across 25 suites)
+# Run full test suite (151 tests)
 npm test
 
 # Run both together
 npm run check
 ```
+
+The suite covers the money arithmetic, the whole workflow end to end over real HTTP, the authorization matrix adversarially, and the frontend's contract with the server (every route the client calls must exist; the app script must not be cacheable).

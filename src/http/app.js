@@ -27,6 +27,15 @@ import {
   getDepartments, postDepartment, patchDepartment, getCostCenters, getAudit,
 } from './routes.admin.js';
 import {
+  getTripBudget, postTripBudgetLine, deleteTripBudgetLine,
+  getTripForex, putTripForex, deleteTripForex,
+  getTripFunds, postTripFund,
+  getExpenseBills, postExpenseBill, getBillContent, deleteBillRoute,
+  getTripReconciliation, postTripReconciliation, postTripReconciliationDecision,
+  postTripSettlement,
+  getDashboard, getReportExport,
+} from './routes.pilot.js';
+import {
   getTrips, getTrip, postTrip, patchTrip, postSubmitTrip, postDecideTrip,
 } from './routes.trips.js';
 import {
@@ -76,6 +85,32 @@ const ROUTES = [
   ['DELETE', '/api/v1/expenses/:id',          deleteExpense],
   ['POST',   '/api/v1/expenses/:id/submit',   postSubmitExpense],
   ['POST',   '/api/v1/expenses/:id/decide',   postDecideExpense],
+
+  // ---- budget, currency plan, funds ----
+  ['GET',    '/api/v1/trips/:id/budget',             getTripBudget],
+  ['POST',   '/api/v1/trips/:id/budget',             postTripBudgetLine],
+  ['DELETE', '/api/v1/trips/:id/budget/:lineId',     deleteTripBudgetLine],
+  ['GET',    '/api/v1/trips/:id/forex',              getTripForex],
+  ['PUT',    '/api/v1/trips/:id/forex',              putTripForex],
+  ['DELETE', '/api/v1/trips/:id/forex/:planId',      deleteTripForex],
+  ['GET',    '/api/v1/trips/:id/funds',              getTripFunds],
+  ['POST',   '/api/v1/trips/:id/funds',              postTripFund],
+
+  // ---- bills (receipts) ----
+  ['GET',    '/api/v1/expenses/:id/bills',           getExpenseBills],
+  ['POST',   '/api/v1/expenses/:id/bills',           postExpenseBill, { binary: true }],
+  ['GET',    '/api/v1/bills/:id/content',            getBillContent],
+  ['DELETE', '/api/v1/bills/:id',                    deleteBillRoute],
+
+  // ---- reconciliation & settlement ----
+  ['GET',    '/api/v1/trips/:id/reconciliation',            getTripReconciliation],
+  ['POST',   '/api/v1/trips/:id/reconciliation',            postTripReconciliation],
+  ['POST',   '/api/v1/trips/:id/reconciliation/decide',     postTripReconciliationDecision],
+  ['POST',   '/api/v1/trips/:id/settle',                    postTripSettlement],
+
+  // ---- reporting ----
+  ['GET',    '/api/v1/dashboard',                   getDashboard],
+  ['GET',    '/api/v1/reports/export.csv',         getReportExport],
 ];
 
 /* Literal routes are matched before parameterised ones, so /employees/import is never
@@ -104,6 +139,7 @@ function matchRoute(method, pathname) {
 
 /* ---- helpers ------------------------------------------------------------- */
 
+/* JSON request bodies. */
 async function readBody(req) {
   /* Vercel's Node runtime parses the body before the handler runs. */
   let pre;
@@ -128,6 +164,73 @@ async function readBody(req) {
     req.on('end', () => {
       if (!raw) return resolve({});
       try { resolve(JSON.parse(raw)); } catch { reject(new Error('bad_json')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+/* A receipt upload. Two shapes are accepted:
+ *
+ *   1. A JSON envelope — { filename, contentType, content: <base64> } — which is
+ *      what the browser sends. It travels through the same body path as
+ *      everything else, so no multipart parser is needed.
+ *   2. Raw bytes, with the file's name in the `x-filename` header. Useful for
+ *      curl and for any client that would rather not base64 a photo.
+ */
+async function readBinaryBody(req, { maxBytes = 5 * 1024 * 1024 } = {}) {
+  let pre;
+  try { pre = req.body; } catch { throw new Error('bad_json'); }
+
+  /* Already parsed by the platform (Vercel) or by a framework. */
+  if (pre !== undefined && pre !== null && pre !== '') {
+    if (Buffer.isBuffer(pre)) {
+      return { content: pre, filename: req.headers['x-filename'], contentType: pre.type || req.headers['content-type'] };
+    }
+    if (typeof pre === 'string') {
+      try {
+        const parsed = JSON.parse(pre);
+        return {
+          content: Buffer.from(parsed.content ?? '', 'base64'),
+          filename: parsed.filename,
+          contentType: parsed.contentType,
+        };
+      } catch { throw new Error('bad_json'); }
+    }
+    return {
+      content: Buffer.from(pre.content ?? '', 'base64'),
+      filename: pre.filename,
+      contentType: pre.contentType,
+    };
+  }
+
+  /* Nothing pre-parsed: read the raw bytes and decide afterwards. */
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > maxBytes) { reject(new Error('payload_too_large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks);
+      /* The JSON envelope arrives as text; raw bytes do not parse as JSON. */
+      const text = raw.toString('utf8');
+      if (text.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(text);
+          return resolve({
+            content: Buffer.from(parsed.content ?? '', 'base64'),
+            filename: parsed.filename,
+            contentType: parsed.contentType,
+          });
+        } catch { /* not JSON after all — treat as bytes */ }
+      }
+      resolve({
+        content: raw,
+        filename: req.headers['x-filename'],
+        contentType: req.headers['content-type'],
+      });
     });
     req.on('error', reject);
   });
@@ -177,7 +280,11 @@ function send(res, status, body, headers = {}, cookie = null) {
   if (!config.isDev) h['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   if (cookie) h['Set-Cookie'] = serialiseCookie(cookie);
   res.writeHead(status, h);
-  res.end(body === null ? '' : JSON.stringify(body));
+  /* A handler may return raw bytes (a receipt download, a CSV export) instead
+   * of a JSON body. */
+  if (body === null) res.end();
+  else if (Buffer.isBuffer(body)) res.end(body);
+  else res.end(JSON.stringify(body));
 }
 
 const MIME = {
@@ -196,9 +303,13 @@ async function serveStatic(res, pathname) {
     const s = await stat(filePath);
     if (!s.isFile()) throw new Error('not a file');
     const ext = extname(filePath);
+    /* The app's own JS and CSS are NOT fingerprinted, so a cached copy would
+     * outlive the deploy that replaced it — a stale script against a new API.
+     * They must revalidate. Everything else (brand images) can be cached. */
+    const cacheable = !['.html', '.js', '.css'].includes(ext);
     res.writeHead(200, {
       'Content-Type': MIME[ext] ?? 'application/octet-stream',
-      'Cache-Control': ext === '.html' ? 'no-store' : 'public, max-age=3600',
+      'Cache-Control': cacheable ? 'public, max-age=3600' : 'no-cache, must-revalidate',
       ...SECURITY_HEADERS,
       ...(config.isDev ? {} : { 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains' }),
     });
@@ -245,7 +356,10 @@ export async function handle(req, res) {
   if (!route) return send(res, 404, { error: { code: 'not_found', message: 'Not found.' } });
 
   try {
-    const body = ['POST', 'PATCH', 'PUT'].includes(req.method) ? await readBody(req) : {};
+    /* A binary route (a receipt upload) gets its bytes rather than parsed JSON. */
+    const body = ['POST', 'PATCH', 'PUT'].includes(req.method)
+      ? (route.opts.binary ? await readBinaryBody(req) : await readBody(req))
+      : {};
     const cookies = parseCookies(req.headers.cookie);
 
     /* The principal is re-resolved on every request, so deactivation and role changes
@@ -267,7 +381,7 @@ export async function handle(req, res) {
     };
 
     const result = await route.handler(ctx);
-    send(res, result.status, result.body, result.headers, result.cookie);
+    send(res, result.status, result.body ?? result.raw ?? null, result.headers, result.cookie);
 
     log.info('http', {
       requestId, method: req.method, path, status: result.status,

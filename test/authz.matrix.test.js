@@ -179,8 +179,22 @@ describe('role boundaries', () => {
   });
 
   test('Admin holds company-wide review and approval authority', () => {
-    assert.ok(P.ASHISH.permissions.includes('trip.approve'));
-    assert.ok(P.ASHISH.permissions.includes('expense.approve'));
+    /* The company-wide tier is a DIFFERENT permission from the team tier.
+     * A manager holds trip.approve (their reporting tree only); the company-wide
+     * grant is trip.approve.all, which only Admin and Finance hold. */
+    assert.ok(P.ASHISH.permissions.includes('trip.approve.all'));
+    assert.ok(P.ASHISH.permissions.includes('expense.approve.all'));
+    assert.ok(P.RAVI.permissions.includes('trip.approve.all'));
+    assert.ok(P.RAVI.permissions.includes('expense.approve.all'));
+  });
+
+  test('a manager holds the TEAM tier of approval, not the company-wide tier', () => {
+    assert.ok(P.VIKRAM.permissions.includes('trip.approve'));
+    assert.ok(P.VIKRAM.permissions.includes('expense.approve'));
+    assert.ok(!P.VIKRAM.permissions.includes('trip.approve.all'),
+      'a manager must not hold company-wide approval authority');
+    assert.ok(!P.VIKRAM.permissions.includes('expense.approve.all'),
+      'a manager must not hold company-wide expense approval authority');
   });
 
   test('Finance cannot manage employees', () => {

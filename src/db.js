@@ -15,18 +15,51 @@ export const pool = new Pool({
   max: config.db.poolMax,
   ssl: config.db.sslMode === 'disable' ? false : { rejectUnauthorized: config.isProd },
   application_name: `trek-${config.env}`,
+  /* A pooled connection that has been idle can be closed by the pooler without
+   * the client noticing. The pool discards such a client, but the query that
+   * was waiting on it fails — and on a serverless instance that is the user's
+   * request, not a background job. These bounds keep connections well inside
+   * the pooler's own idle window. */
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  keepAlive: true,
 });
 
 pool.on('error', (err) => log.error('pg.pool', { err }));
 
+/* Connection-level failures, as opposed to query failures. The query never ran,
+ * so running it again on a fresh connection is safe and correct. */
+const CONNECTION_ERRORS = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'ETIMEDOUT', 'EHOSTUNREACH',
+  '57P01',  /* admin_shutdown */
+  '08000', '08003', '08006', '08001', '08004',
+]);
+
+function isConnectionError(err) {
+  if (!err) return false;
+  if (CONNECTION_ERRORS.has(err.code)) return true;
+  return /terminated|closed the connection|connection ended|server closed/i.test(err.message ?? '');
+}
+
 export async function query(text, params) {
-  const started = Date.now();
   try {
-    return await pool.query(text, params);
-  } finally {
-    const ms = Date.now() - started;
-    if (ms > 500) log.warn('pg.slow', { ms, text: text.slice(0, 120) });
+    return await run(text, params);
+  } catch (err) {
+    /* One retry on a fresh connection. A dropped connection is a fact about the
+     * wire, not about the query, and the first attempt never reached the
+     * server. */
+    if (!isConnectionError(err)) throw err;
+    log.warn('pg.retry', { code: err.code, text: text.slice(0, 120) });
+    return await run(text, params);
   }
+}
+
+async function run(text, params) {
+  const started = Date.now();
+  const result = await pool.query(text, params);
+  const ms = Date.now() - started;
+  if (ms > 500) log.warn('pg.slow', { ms, text: text.slice(0, 120) });
+  return result;
 }
 
 export async function one(text, params) {
@@ -58,7 +91,10 @@ export async function tx(fn) {
     await client.query('COMMIT');
     return result;
   } catch (err) {
-    await client.query('ROLLBACK');
+    /* A dead connection cannot roll back — it is already gone. Swallowing the
+     * rollback error keeps the original failure, which is the one worth
+     * reporting. */
+    try { await client.query('ROLLBACK'); } catch { /* the connection is gone */ }
     throw err;
   } finally {
     client.release();

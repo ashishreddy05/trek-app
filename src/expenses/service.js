@@ -1,9 +1,20 @@
-/* Expenses service. */
+/* Expenses service.
+ *
+ * An expense may only exist against a trip the company has approved and funded
+ * (`active`). A claim against a draft or rejected trip is a request for money
+ * nobody agreed to spend.
+ *
+ * Money: amount is the exact transaction amount in the currency actually spent;
+ * base_amount is the snapshot of that amount converted at the rate the trip's
+ * currency plan held when the expense was written. Changing the rate later
+ * never rewrites a recorded expense.
+ */
 
 import { tx } from '../db.js';
 import { audit, ACTIONS } from '../audit.js';
 import { validateExpense } from './validate.js';
 import { WorkflowError } from '../trips/validate.js';
+import { multiplyRate } from '../money.js';
 
 export async function listExpenses(db, { scope, team, employeeId, tripId, status, limit = 50, cursor } = {}) {
   const where = [];
@@ -17,7 +28,7 @@ export async function listExpenses(db, { scope, team, employeeId, tripId, status
     if (ids.length === 0) return { data: [], nextCursor: null };
     add('x.employee_id = ANY($?)', ids);
   } else if (scope === 'all' || scope === 'finance') {
-    if (employeeId) add('x.employee_id = $?', employeeId);
+    /* Company-wide: no id restriction. */
   }
 
   if (tripId) add('x.trip_id = $?', tripId);
@@ -28,12 +39,14 @@ export async function listExpenses(db, { scope, team, employeeId, tripId, status
 
   const rows = await db.many(
     `SELECT x.id, x.company_id, x.trip_id, x.employee_id, x.expense_date,
-            x.description, x.category, x.amount, x.currency, x.status,
+            x.description, x.category, x.amount, x.currency, x.rate_to_base, x.base_amount,
+            x.payment_method, x.status,
             x.submitted_at, x.decided_at, x.decided_by, x.rejection_reason,
             x.created_at, x.updated_at,
             e.name AS employee_name, e.employee_code,
-            t.destination AS trip_destination,
-            m.name AS decided_by_name
+            t.destination AS trip_destination, t.status AS trip_status,
+            m.name AS decided_by_name,
+            (SELECT count(*)::int FROM expense_bill b WHERE b.expense_id = x.id) AS bill_count
        FROM expense x
        JOIN employee e ON e.id = x.employee_id
        JOIN trip t     ON t.id = x.trip_id
@@ -53,11 +66,12 @@ export async function listExpenses(db, { scope, team, employeeId, tripId, status
 export async function readExpense(db, id) {
   return db.one(
     `SELECT x.id, x.company_id, x.trip_id, x.employee_id, x.expense_date,
-            x.description, x.category, x.amount, x.currency, x.status,
+            x.description, x.category, x.amount, x.currency, x.rate_to_base, x.base_amount,
+            x.payment_method, x.status,
             x.submitted_at, x.decided_at, x.decided_by, x.rejection_reason,
             x.created_at, x.updated_at,
             e.name AS employee_name, e.employee_code,
-            t.destination AS trip_destination,
+            t.destination AS trip_destination, t.status AS trip_status,
             m.name AS decided_by_name
        FROM expense x
        JOIN employee e ON e.id = x.employee_id
@@ -68,21 +82,48 @@ export async function readExpense(db, id) {
   );
 }
 
+/** The rate the trip's currency plan holds for this currency. */
+async function rateFor(client, tripId, currency) {
+  const row = await client.one(
+    'SELECT rate_to_base FROM trip_fx_plan WHERE trip_id = $1 AND currency = $2',
+    [tripId, currency]
+  );
+  if (!row) {
+    throw new WorkflowError(422, 'validation_failed',
+      `No exchange rate is set for ${currency} on this trip. Add it to the currency plan first.`);
+  }
+  return row.rate_to_base;
+}
+
+/** Money may only be recorded against a trip that is approved and funded. */
+async function assertTripAcceptsExpenses(client, trip, action) {
+  if (trip.status !== 'active') {
+    throw new WorkflowError(409, 'invalid_transition',
+      `Expenses can only be recorded once the trip is approved and funded; this trip is ${trip.status}.`);
+  }
+}
+
 export async function createExpense({ input, actor, requestId, ip }) {
   const valid = validateExpense(input, { requireTrip: true });
 
   return tx(async (client) => {
-    // Check that trip exists and belongs to the actor.
     const trip = await client.one('SELECT * FROM trip WHERE id = $1', [valid.tripId]);
     if (!trip || trip.employee_id !== actor.employeeId) {
       throw new WorkflowError(404, 'not_found', 'Trip not found.');
     }
 
+    await assertTripAcceptsExpenses(client, trip, 'created');
+
+    const rate = await rateFor(client, trip.id, valid.currency);
+    const base = multiplyRate(valid.amount, rate);
+
     const row = await client.one(
-      `INSERT INTO expense (trip_id, employee_id, expense_date, description, category, amount, currency, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
+      `INSERT INTO expense (trip_id, employee_id, expense_date, description, category, amount,
+                             currency, rate_to_base, base_amount, payment_method, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft')
        RETURNING *`,
-      [valid.tripId, actor.employeeId, valid.date, valid.description, valid.category, valid.amount, valid.currency]
+      [trip.id, actor.employeeId, valid.date, valid.description, valid.category, valid.amount,
+       valid.currency, rate, base, valid.paymentMethod]
     );
 
     await audit(client, {
@@ -94,8 +135,8 @@ export async function createExpense({ input, actor, requestId, ip }) {
       relatedType: 'trip',
       relatedId: trip.id,
       newState: 'draft',
-      detail: `Draft expense "${valid.description}" (${valid.amount} ${valid.currency}) added to trip to ${trip.destination}`,
-      metadata: { tripId: trip.id, category: valid.category, amount: valid.amount, currency: valid.currency },
+      detail: `Draft expense "${valid.description}" (${valid.amount} ${valid.currency}, ${valid.paymentMethod.replace('_', ' ')}) added to trip to ${trip.destination}`,
+      metadata: { tripId: trip.id, category: valid.category, amount: valid.amount, currency: valid.currency, baseAmount: base, rateToBase: rate, paymentMethod: valid.paymentMethod },
       requestId,
       actorIp: ip,
     });
@@ -115,12 +156,20 @@ export async function updateExpense({ id, input, actor, requestId, ip }) {
       throw new WorkflowError(409, 'invalid_transition', `Only draft expenses can be edited; this expense is ${existing.status}.`);
     }
 
+    const trip = await client.one('SELECT * FROM trip WHERE id = $1', [existing.trip_id]);
+    await assertTripAcceptsExpenses(client, trip, 'edited');
+
+    const rate = await rateFor(client, existing.trip_id, valid.currency);
+    const base = multiplyRate(valid.amount, rate);
+
     const row = await client.one(
       `UPDATE expense
-          SET expense_date = $2, description = $3, category = $4, amount = $5, currency = $6
+          SET expense_date = $2, description = $3, category = $4, amount = $5, currency = $6,
+              rate_to_base = $7, base_amount = $8, payment_method = $9
         WHERE id = $1
         RETURNING *`,
-      [id, valid.date, valid.description, valid.category, valid.amount, valid.currency]
+      [id, valid.date, valid.description, valid.category, valid.amount, valid.currency,
+       rate, base, valid.paymentMethod]
     );
 
     await audit(client, {
@@ -134,7 +183,7 @@ export async function updateExpense({ id, input, actor, requestId, ip }) {
       previousState: 'draft',
       newState: 'draft',
       detail: `Expense "${valid.description}" updated (${valid.amount} ${valid.currency})`,
-      metadata: { category: valid.category, amount: valid.amount, currency: valid.currency },
+      metadata: { category: valid.category, amount: valid.amount, currency: valid.currency, baseAmount: base, paymentMethod: valid.paymentMethod },
       requestId,
       actorIp: ip,
     });
@@ -183,7 +232,7 @@ export async function submitExpense({ id, actor, requestId, ip }) {
       throw new WorkflowError(409, 'invalid_transition', `Only draft expenses can be submitted; this expense is ${expense.status}.`);
     }
 
-    // Verify employee has an active eligible manager.
+    /* Verify the employee has an active eligible manager. */
     const emp = await client.one(
       `SELECT e.manager_id, m.status AS manager_status, m.name AS manager_name
          FROM employee e
@@ -219,7 +268,7 @@ export async function submitExpense({ id, actor, requestId, ip }) {
       previousState: 'draft',
       newState: 'submitted',
       detail: `Expense "${expense.description}" submitted for manager approval (assigned to ${emp.manager_name})`,
-      metadata: { amount: expense.amount, currency: expense.currency, managerId: emp.manager_id },
+      metadata: { amount: expense.amount, currency: expense.currency, baseAmount: expense.base_amount, managerId: emp.manager_id },
       requestId,
       actorIp: ip,
     });
@@ -277,7 +326,7 @@ export async function decideExpense({ id, decision, reason, actor, requestId, ip
       newState: newStatus,
       detail: `Expense "${expense.description}" ${decision === 'approve' ? 'approved' : 'rejected by manager'}`,
       reason: cleanReason,
-      metadata: { amount: expense.amount, currency: expense.currency, decision },
+      metadata: { amount: expense.amount, currency: expense.currency, baseAmount: expense.base_amount, decision },
       requestId,
       actorIp: ip,
     });
