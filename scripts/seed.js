@@ -13,9 +13,9 @@ const checks = [
   ['company',      'SELECT count(*)::int n FROM company',                       1],
   ['departments',  'SELECT count(*)::int n FROM department',                     6],
   ['cost centers', 'SELECT count(*)::int n FROM cost_center',                    6],
-  ['employees',    'SELECT count(*)::int n FROM employee',                       1],
-  ['accounts',     'SELECT count(*)::int n FROM account',                        1],
-  ['identities',   'SELECT count(*)::int n FROM account_identity',               1],
+  ['employees',    'SELECT count(*)::int n FROM employee',                       2],
+  ['accounts',     'SELECT count(*)::int n FROM account',                        2],
+  ['identities',   'SELECT count(*)::int n FROM account_identity',               2],
   ['Sales active', "SELECT count(*)::int n FROM employee WHERE department_id='dep_sls' AND status='active'", 0],
 ];
 

@@ -28,7 +28,8 @@ DATABASE_SSL_MODE=disable
 MAIL_DRIVER=console
 
 # Allowed Corporate Domains for Sign-in
-LOGIN_EMAIL_DOMAINS=garageplug.com
+# garageplug.test holds test fixtures only — never a deployment.
+LOGIN_EMAIL_DOMAINS=garageplug.com,garageplug.test
 ```
 
 ---
@@ -70,13 +71,18 @@ Trek uses Node.js's native test runner (`node:test`). Tests run fast without com
 npm run check:no-bypass
 
 # 2. Run the full test suite against local test database
-DATABASE_URL=postgres://localhost:5432/trek_test DATABASE_SSL_MODE=disable APP_ENV=dev APP_BASE_URL=http://localhost:3000 npm test
+DATABASE_URL=postgres://localhost:5432/trek_test DATABASE_SSL_MODE=disable APP_ENV=dev APP_BASE_URL=http://localhost:3000 LOGIN_EMAIL_DOMAINS=garageplug.com,garageplug.test npm test
 
 # 3. Run both checks together
 npm run check
 ```
 
-### 3.3 Test Structure
+### 3.3 The Test Fixtures
+`scripts/seed-test.js` loads the fixtures the suite needs: a manager, a finance user, a travel desk and five travellers, so reporting lines and approvals can be exercised.
+
+They are fixtures, not people. The names say so, and the addresses sit in the reserved `garageplug.test` domain (RFC 2606), which can never belong to a colleague and can never sign in to a deployment — the live allowlist is `garageplug.com` alone. The script refuses to run against any database whose name does not end in `_test`, so it can never touch company data.
+
+### 3.4 Test Structure
 * [`test/trips.expenses.test.js`](../test/trips.expenses.test.js): Domain test suite covering trip/expense validation, reporting tree routing, self-approval prevention, decimal precision, and rollback on failure.
 * [`test/trips.http.test.js`](../test/trips.http.test.js): End-to-end HTTP integration tests running against an ephemeral HTTP server with real session cookies and network fetch calls.
 * [`test/authz.matrix.test.js`](../test/authz.matrix.test.js): Adversarial security test suite verifying every cell of the authorization matrix, opaque denial, and scope parameters.
@@ -111,3 +117,11 @@ Open **`http://localhost:3000`** in your browser.
   node scripts/reset-staging.js --confirm
   ```
   Deletes transactional tables on staging and restores approved master seed data. Refuses to run against production databases or databases lacking a `staging.marker` audit row.
+
+* **Rebuild a Database from the Migrations**:
+  ```bash
+  node scripts/recreate-app-db.js neondb
+  ```
+  Drops the database and rebuilds it from `migrations/`, carrying the administrators' password hashes across so nobody's password changes. Sessions are not carried across, so everyone signs in again.
+
+  This is the only way to clear the audit log: `audit_event` is append-only by design, so the seed-era rows cannot be deleted by any role — the database has to be built again to leave one whose every row is real.

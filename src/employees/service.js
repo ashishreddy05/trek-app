@@ -14,7 +14,7 @@ import { passwordProblem } from '../auth/password-policy.js';
 import { ValidationError } from './validate.js';
 
 /* Internal ids are opaque. `emp_` + 4 digits matches the approved dataset's shape
- * (emp_1231); collision is retried rather than assumed away. Business refs
+ * (emp_t04); collision is retried rather than assumed away. Business refs
  * (TRK-, EXP-) need gapless sequences — that is D-07 and belongs to the tables that
  * carry them, none of which exist yet. */
 async function nextEmployeeId(db) {

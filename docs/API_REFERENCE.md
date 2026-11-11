@@ -102,7 +102,7 @@ Lists trips based on the caller's authorized scope.
         "id": "trp_f24de41cfd5e8c02",
         "employee_id": "emp_1000",
         "employee_name": "Ashish Reddy",
-        "employee_code": "TEST-ADMIN",
+        "employee_code": "EMP-002",
         "destination": "London HQ",
         "purpose": "Executive Strategy Session",
         "start_date": "2026-12-01",

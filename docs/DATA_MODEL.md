@@ -160,7 +160,7 @@ erDiagram
 #### `employee`
 * `id` (`text`, Primary Key, e.g. `'emp_1000'`)
 * `company_id` (`text`, Foreign Key &rarr; `company(id)`)
-* `employee_code` (`text`, NOT NULL, Unique uppercase, e.g. `'GP-0231'`)
+* `employee_code` (`text`, NOT NULL, Unique uppercase, e.g. `'EMP-001'`)
 * `name` (`text`, NOT NULL)
 * `work_email` (`text`, NOT NULL, Unique lowercase)
 * `mobile` (`text`, Nullable)
@@ -364,9 +364,9 @@ Migrations are forward-only, sequentially numbered SQL scripts located in `migra
 
 1. `001_core_identity.sql`: Company, department, cost center, employee, account, and session tables.
 2. `002_audit.sql`: Append-only `audit_event` table and PostgreSQL immutability triggers.
-3. `003_seed_master_data.sql`: Base organization bootstrap data.
+3. `003_seed_master_data.sql`: Base organization bootstrap data — company, departments, cost centers, and the two administrators. No demo roster: it was removed at handover rather than created and then deleted.
 4. `004_password_auth.sql`: Scrypt credentials, reset tokens, and brute-force tracking (`login_attempt`).
-5. `005_remove_demo_employees.sql`: Forward cleanup removing legacy demo fixtures, leaving only the initial administrator account (`ashishreddy@garageplug.com`).
+5. `005_remove_demo_employees.sql`: Forward cleanup that removes the legacy demo roster from any database that still carries it, and records an event only when it actually removed something.
 6. `006_trips_and_expenses.sql`: Enums, tables, check constraints, indexes, triggers, and runtime role grants for Trips and Expenses.
 7. `007_trip_currency.sql`: Adds destination `currency` column to `trip` table for international multi-currency travel planning.
 8. `008_optional_employee_fields.sql`: Makes `grade`, `location` and `joining_date` optional on `employee`.

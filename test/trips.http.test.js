@@ -29,10 +29,10 @@ before(async () => {
   /* Ensure the pilot trio have password credentials. */
   const hash = await hashPassword(PASSWORD);
   for (const email of [
-    'suresh.kumar@garageplug.com',
-    'vikram.shetty@garageplug.com',
-    'nadia.haddad@garageplug.com',
-    'ravi.nambiar@garageplug.com',
+    'test.traveller.one@garageplug.test',
+    'test.manager@garageplug.test',
+    'test.traveller.two@garageplug.test',
+    'test.finance@garageplug.test',
   ]) {
     await db.query(
       `INSERT INTO password_credential (account_id, hash)
@@ -69,23 +69,23 @@ const json = (cookie, body) => ({
 });
 
 describe('HTTP API End-to-End: the pilot workflow', () => {
-  let sureshCookie;
-  let vikramCookie;
-  let nadiaCookie;
-  let raviCookie;   // Finance — issues funds, decides reconciliations
+  let travellerOneCookie;
+  let managerCookie;
+  let travellerTwoCookie;
+  let financeCookie;   // Finance — issues funds, decides reconciliations
   let tripId;
   let expenseId;
   let billId;
 
   test('sign in users and obtain session cookies', async () => {
-    sureshCookie = await loginAs('suresh.kumar@garageplug.com');
-    vikramCookie = await loginAs('vikram.shetty@garageplug.com');
-    nadiaCookie = await loginAs('nadia.haddad@garageplug.com');
-    raviCookie = await loginAs('ravi.nambiar@garageplug.com');
+    travellerOneCookie = await loginAs('test.traveller.one@garageplug.test');
+    managerCookie = await loginAs('test.manager@garageplug.test');
+    travellerTwoCookie = await loginAs('test.traveller.two@garageplug.test');
+    financeCookie = await loginAs('test.finance@garageplug.test');
   });
 
   test('POST /api/v1/trips creates a draft trip', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips`, json(travellerOneCookie, {
       destination: 'Doha & Lusail, Qatar',
       purpose: 'GCC Partnership summit and keynote',
       startDate: '2026-12-10',
@@ -105,7 +105,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('PATCH /api/v1/trips/:id edits a draft trip', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}`, {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', cookie: sureshCookie },
+      headers: { 'content-type': 'application/json', cookie: travellerOneCookie },
       body: JSON.stringify({
         destination: 'Doha & Lusail, Qatar',
         purpose: 'GCC Partnership summit, keynote and two site visits',
@@ -122,7 +122,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('PUT /api/v1/trips/:id/forex sets the currency plan', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/forex`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', cookie: sureshCookie },
+      headers: { 'content-type': 'application/json', cookie: travellerOneCookie },
       body: JSON.stringify({
         currency: 'AED',
         rateToBase: '83.25000000',
@@ -140,7 +140,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('POST /api/v1/trips/:id/budget adds a budget line, converted exactly', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/budget`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/budget`, json(travellerOneCookie, {
       category: 'travel',
       description: 'Return flights and airport transfer',
       amount: '4000.00',
@@ -152,7 +152,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('a budget line in a currency with no rate is refused with 422', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/budget`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/budget`, json(travellerOneCookie, {
       category: 'food',
       description: 'Dinner',
       amount: '100.00',
@@ -164,7 +164,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('an expense cannot be recorded before the trip is approved and funded', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/expenses`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/expenses`, json(travellerOneCookie, {
       tripId,
       date: '2026-12-11',
       description: 'Flight ticket return',
@@ -181,7 +181,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('POST /api/v1/trips/:id/submit submits the trip for approval', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/submit`, {
       method: 'POST',
-      headers: { cookie: sureshCookie },
+      headers: { cookie: travellerOneCookie },
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -190,7 +190,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
 
   test('an out-of-scope trip read is 404, not 403', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}`, {
-      headers: { cookie: nadiaCookie },
+      headers: { cookie: travellerTwoCookie },
     });
     assert.equal(res.status, 404);
   });
@@ -198,7 +198,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('manager cannot decide with invalid payload (missing reason on reject)', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/decide`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: vikramCookie },
+      headers: { 'content-type': 'application/json', cookie: managerCookie },
       body: JSON.stringify({ decision: 'reject', reason: '' }),
     });
     assert.equal(res.status, 422);
@@ -207,7 +207,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('manager approves the trip over HTTP', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/decide`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: vikramCookie },
+      headers: { 'content-type': 'application/json', cookie: managerCookie },
       body: JSON.stringify({ decision: 'approve' }),
     });
     assert.equal(res.status, 200);
@@ -219,7 +219,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('editing an approved trip via HTTP returns 409 conflict', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}`, {
       method: 'PATCH',
-      headers: { 'content-type': 'application/json', cookie: sureshCookie },
+      headers: { 'content-type': 'application/json', cookie: travellerOneCookie },
       body: JSON.stringify({
         destination: 'New Destination',
         purpose: 'New purpose',
@@ -234,7 +234,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('GET /api/v1/trips without a scope returns the caller\'s own trips, not 403', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips`, { headers: { cookie: sureshCookie } });
+    const res = await fetch(`${baseUrl}/api/v1/trips`, { headers: { cookie: travellerOneCookie } });
     assert.equal(res.status, 200, 'a collection read must not require an explicit scope');
     const body = await res.json();
     assert.ok(Array.isArray(body.data));
@@ -242,7 +242,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('an employee cannot issue funds', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(travellerOneCookie, {
       kind: 'cash',
       amount: '2000.00',
       currency: 'AED',
@@ -251,7 +251,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('a manager cannot issue funds — Finance does', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(vikramCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(managerCookie, {
       kind: 'cash',
       amount: '2000.00',
       currency: 'AED',
@@ -260,7 +260,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('POST /api/v1/trips/:id/funds activates the trip', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(raviCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/funds`, json(financeCookie, {
       kind: 'cash',
       amount: '2000.00',
       currency: 'AED',
@@ -273,7 +273,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('POST /api/v1/expenses creates a draft expense', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/expenses`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/expenses`, json(travellerOneCookie, {
       tripId,
       date: '2026-12-11',
       description: 'Flight ticket return',
@@ -294,7 +294,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
 
   test('GET /api/v1/trips/:id includes expenses and the budget-versus-actual totals', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}`, {
-      headers: { cookie: sureshCookie },
+      headers: { cookie: travellerOneCookie },
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -309,7 +309,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('POST /api/v1/expenses/:id/bills uploads a receipt', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/expenses/${expenseId}/bills`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/expenses/${expenseId}/bills`, json(travellerOneCookie, {
       filename: 'ticket.pdf',
       contentType: 'application/pdf',
       content: Buffer.from('%PDF-1.4 fake ticket bytes').toString('base64'),
@@ -323,7 +323,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
 
   test('GET /api/v1/bills/:id/content returns the receipt bytes', async () => {
     const res = await fetch(`${baseUrl}/api/v1/bills/${billId}/content`, {
-      headers: { cookie: sureshCookie },
+      headers: { cookie: travellerOneCookie },
     });
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('content-type'), 'application/pdf');
@@ -334,7 +334,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('POST /api/v1/expenses/:id/submit submits expense for approval', async () => {
     const res = await fetch(`${baseUrl}/api/v1/expenses/${expenseId}/submit`, {
       method: 'POST',
-      headers: { cookie: sureshCookie },
+      headers: { cookie: travellerOneCookie },
     });
     assert.equal(res.status, 200);
     const body = await res.json();
@@ -344,7 +344,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   test('manager approves the expense via HTTP', async () => {
     const res = await fetch(`${baseUrl}/api/v1/expenses/${expenseId}/decide`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: vikramCookie },
+      headers: { 'content-type': 'application/json', cookie: managerCookie },
       body: JSON.stringify({ decision: 'approve' }),
     });
     assert.equal(res.status, 200);
@@ -353,7 +353,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('POST /api/v1/trips/:id/reconciliation computes the balance', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/reconciliation`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/reconciliation`, json(travellerOneCookie, {
       note: 'All receipts attached',
     }));
     assert.equal(res.status, 201);
@@ -365,14 +365,14 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
   });
 
   test('an employee cannot decide a reconciliation', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/reconciliation/decide`, json(sureshCookie, {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}/reconciliation/decide`, json(travellerOneCookie, {
       decision: 'approve',
     }));
     assert.equal(res.status, 403);
   });
 
   test('the dashboard returns the trip and its spend', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/dashboard`, { headers: { cookie: vikramCookie } });
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`, { headers: { cookie: managerCookie } });
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.ok(body.totals);
@@ -382,7 +382,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
 
   test('the report export is a CSV', async () => {
     const res = await fetch(`${baseUrl}/api/v1/reports/export.csv?kind=employees`, {
-      headers: { cookie: vikramCookie },
+      headers: { cookie: managerCookie },
     });
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/csv/);

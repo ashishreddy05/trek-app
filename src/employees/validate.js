@@ -66,7 +66,7 @@ export async function validateEmployee(db, input, existingId = null) {
   }
 
   /* Uniqueness. The error names the clashing employee — approved copy is
-   * "Already used by Suresh Kumar", not "must be unique". */
+   * "Already used by the traveller Kumar", not "must be unique". */
   if (input.employeeCode && !fields.employeeCode) {
     const clash = await db.one(
       `SELECT name FROM employee

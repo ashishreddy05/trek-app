@@ -59,6 +59,12 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 * It is **kept true by a test**, not by discipline: `test/manual.test.js` asserts that every error message the manual quotes is really produced by the code, that every state it lists exists in the schema, that every screen it names exists in the app, and that the roles it describes match the permission matrix.
 * **So: if you change a message, a state or a screen, the manual changes with it, or the build fails.** That is the point — a help system that drifts is worse than none, because people trust it.
 
+### 1.11 No Demo People, Anywhere
+* The seed (`migrations/003_seed_master_data.sql`) contains **master data and the two real administrators. Nothing else.** No roster of illustrative employees — not even obviously-fictional ones. A name in a seed file is a name the team may later meet in production.
+* Test fixtures live in `scripts/seed-test.js`, never in a migration, and use the reserved `garageplug.test` domain. The runtime allowlist is `garageplug.com` alone, so a fixture account cannot sign in to a deployment even if a row were copied across.
+* `scripts/seed-test.js` refuses any database whose name does not end in `_test`. Keep that guard.
+* **To clear a database that already carries demo rows, rebuild it** (`scripts/recreate-app-db.js`): `audit_event` is append-only, so the seed-era rows cannot be deleted by any role.
+
 ---
 
 ## 2. Project Layout & Architecture Map
@@ -81,6 +87,7 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 ├── scripts/                  # Administrative and deployment scripts
 │   ├── migrate.js            # Transactional migration runner
 │   ├── seed-test.js          # Test-only fixture loader (refuses a non-_test DB)
+│   ├── recreate-app-db.js    # Rebuilds a database from migrations, keeping password hashes
 │   ├── issue-password-link.js# One-time password token generator
 │   └── check-no-auth-bypass.sh # Security scanning script
 ├── src/                      # Backend application source

@@ -38,7 +38,7 @@ jobs:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/trek_test
       DATABASE_SSL_MODE: disable
       MAIL_DRIVER: console
-      LOGIN_EMAIL_DOMAINS: garageplug.com
+      LOGIN_EMAIL_DOMAINS: garageplug.com,garageplug.test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

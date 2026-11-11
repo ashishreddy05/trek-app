@@ -23,7 +23,7 @@ describe('audit_event is append-only', () => {
         actorLabel: 'Ashish Reddy',
         action: ACTIONS.EMPLOYEE_UPDATE,
         entityType: 'employee',
-        entityId: 'emp_1231',
+        entityId: 'emp_t04',
         previousState: 'active',
         newState: 'active',
         detail: 'Immutability test event',

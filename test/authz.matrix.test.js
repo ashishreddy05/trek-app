@@ -18,17 +18,17 @@ import { resolvePrincipal } from '../src/auth/principal.js';
 import * as db from '../src/db.js';
 
 /* Seeded pilot employees (003_seed_master_data.sql). */
-const SURESH = 'emp_1231';   // Sales employee, reports to Vikram
-const NADIA  = 'emp_1232';   // Sales employee, peer of Suresh
-const VIKRAM = 'emp_1001';   // VP Sales — manager of both, no manager himself
-const RAVI   = 'emp_1002';   // Finance
-const SARA   = 'emp_1004';   // HR / Travel
+const TRAVELLER_ONE = 'emp_t04';   // Sales employee, reports to the manager
+const TRAVELLER_TWO  = 'emp_t05';   // Sales employee, peer of the traveller
+const MANAGER = 'emp_t01';   // VP Sales — manager of both, no manager himself
+const FINANCE   = 'emp_t02';   // Finance
+const TRAVEL   = 'emp_t03';   // HR / Travel
 const ASHISH  = 'emp_1000';   // Admin
 
 let P = {};
 
 before(async () => {
-  for (const [k, id] of Object.entries({ SURESH, NADIA, VIKRAM, RAVI, SARA, ASHISH })) {
+  for (const [k, id] of Object.entries({ TRAVELLER_ONE, TRAVELLER_TWO, MANAGER, FINANCE, TRAVEL, ASHISH })) {
     P[k] = await resolvePrincipal(db, id);
     assert.ok(P[k], `principal ${k} (${id}) must resolve — is the database seeded?`);
   }
@@ -60,25 +60,25 @@ async function allowed(principal, operation, target) {
 
 describe('id substitution — the core adversarial case', () => {
   test('an employee cannot read a peer by substituting their id', async () => {
-    await denied(P.SURESH, 'employee.read', { employeeId: NADIA, type: 'employee', id: NADIA });
+    await denied(P.TRAVELLER_ONE, 'employee.read', { employeeId: TRAVELLER_TWO, type: 'employee', id: TRAVELLER_TWO });
   });
 
   test('an employee cannot read their own manager by substituting their id', async () => {
-    await denied(P.SURESH, 'employee.read', { employeeId: VIKRAM, type: 'employee', id: VIKRAM });
+    await denied(P.TRAVELLER_ONE, 'employee.read', { employeeId: MANAGER, type: 'employee', id: MANAGER });
   });
 
   test('an employee cannot read Finance by substituting their id', async () => {
-    await denied(P.SURESH, 'employee.read', { employeeId: RAVI, type: 'employee', id: RAVI });
+    await denied(P.TRAVELLER_ONE, 'employee.read', { employeeId: FINANCE, type: 'employee', id: FINANCE });
   });
 
   test('an employee CAN read their own record', async () => {
-    const r = await allowed(P.SURESH, 'employee.read', { employeeId: SURESH });
+    const r = await allowed(P.TRAVELLER_ONE, 'employee.read', { employeeId: TRAVELLER_ONE });
     assert.equal(r.scope, 'own');
   });
 
   test('out-of-scope denial is opaque — 404, not 403, so ids are not an oracle', async () => {
     await assert.rejects(
-      () => authorize(db, P.SURESH, 'employee.read', { employeeId: NADIA }),
+      () => authorize(db, P.TRAVELLER_ONE, 'employee.read', { employeeId: TRAVELLER_TWO }),
       (err) => {
         assert.equal(err.status, 404, 'must be indistinguishable from a nonexistent record');
         return true;
@@ -87,8 +87,8 @@ describe('id substitution — the core adversarial case', () => {
   });
 
   test('a denial for a NONEXISTENT id is identical to one for an out-of-scope id', async () => {
-    const a = await authorize(db, P.SURESH, 'employee.read', { employeeId: 'emp_nope' }).catch((e) => e);
-    const b = await authorize(db, P.SURESH, 'employee.read', { employeeId: NADIA }).catch((e) => e);
+    const a = await authorize(db, P.TRAVELLER_ONE, 'employee.read', { employeeId: 'emp_nope' }).catch((e) => e);
+    const b = await authorize(db, P.TRAVELLER_ONE, 'employee.read', { employeeId: TRAVELLER_TWO }).catch((e) => e);
     assert.equal(a.status, b.status);
     assert.equal(a.code, b.code);
     assert.equal(a.message, b.message);
@@ -99,30 +99,30 @@ describe('id substitution — the core adversarial case', () => {
 
 describe('team scope is the reporting tree, not the department', () => {
   test('a manager can read a direct report', async () => {
-    const r = await allowed(P.VIKRAM, 'employee.read', { employeeId: SURESH });
+    const r = await allowed(P.MANAGER, 'employee.read', { employeeId: TRAVELLER_ONE });
     assert.ok(['team', 'all'].includes(r.scope));
   });
 
   test('the reporting tree contains all five Sales travellers', async () => {
-    const tree = await reportingTree(db, VIKRAM);
-    for (const id of [SURESH, NADIA, 'emp_1233', 'emp_1234', 'emp_1235']) {
-      assert.ok(tree.has(id), `${id} should be in Vikram's reporting tree`);
+    const tree = await reportingTree(db, MANAGER);
+    for (const id of [TRAVELLER_ONE, TRAVELLER_TWO, 'emp_t06', 'emp_t07', 'emp_t08']) {
+      assert.ok(tree.has(id), `${id} should be in the manager's reporting tree`);
     }
   });
 
   test('the reporting tree excludes the manager themselves', async () => {
-    const tree = await reportingTree(db, VIKRAM);
-    assert.ok(!tree.has(VIKRAM));
+    const tree = await reportingTree(db, MANAGER);
+    assert.ok(!tree.has(MANAGER));
   });
 
   test('a manager cannot read someone outside their tree who shares no reporting line', async () => {
-    await denied(P.VIKRAM, 'employee.read', { employeeId: ASHISH, type: 'employee', id: ASHISH });
+    await denied(P.MANAGER, 'employee.read', { employeeId: ASHISH, type: 'employee', id: ASHISH });
   });
 
   test('sharing a department does not grant access — peers cannot read each other', async () => {
-    // Suresh and Nadia are both Sales, both CC-SLS-01. Neither manages the other.
-    await denied(P.SURESH, 'employee.read', { employeeId: NADIA });
-    await denied(P.NADIA, 'employee.read', { employeeId: SURESH });
+    // the traveller and the peer are both Sales, both CC-SLS-01. Neither manages the other.
+    await denied(P.TRAVELLER_ONE, 'employee.read', { employeeId: TRAVELLER_TWO });
+    await denied(P.TRAVELLER_TWO, 'employee.read', { employeeId: TRAVELLER_ONE });
   });
 });
 
@@ -130,16 +130,16 @@ describe('team scope is the reporting tree, not the department', () => {
 
 describe('a filter parameter is not authorization', () => {
   test('requesting a scope you lack is 403, never a quietly empty result', async () => {
-    await denied(P.SURESH, 'employee.list', { scope: 'all' });
-    await denied(P.SURESH, 'employee.list', { scope: 'team' });
+    await denied(P.TRAVELLER_ONE, 'employee.list', { scope: 'all' });
+    await denied(P.TRAVELLER_ONE, 'employee.list', { scope: 'team' });
   });
 
   test('an undeclared scope is refused rather than ignored', async () => {
-    await denied(P.VIKRAM, 'employee.list', { scope: 'everything' });
+    await denied(P.MANAGER, 'employee.list', { scope: 'everything' });
   });
 
   test('a manager requesting team scope gets it, with the tree resolved', async () => {
-    const r = await allowed(P.VIKRAM, 'employee.list', { scope: 'team' });
+    const r = await allowed(P.MANAGER, 'employee.list', { scope: 'team' });
     assert.equal(r.scope, 'team');
     assert.ok(r.team instanceof Set);
   });
@@ -164,7 +164,7 @@ describe('deny by default', () => {
 
   test('an unauthenticated caller is 401 on any non-public operation', async () => {
     await assert.rejects(
-      () => authorize(db, null, 'employee.read', { employeeId: SURESH }),
+      () => authorize(db, null, 'employee.read', { employeeId: TRAVELLER_ONE }),
       (err) => { assert.equal(err.status, 401); return true; }
     );
   });
@@ -174,8 +174,8 @@ describe('deny by default', () => {
 
 describe('role boundaries', () => {
   test('HR/Travel has NO expense access — deliberate', () => {
-    assert.ok(!P.SARA.permissions.includes('expense.read.all'));
-    assert.ok(!P.SARA.permissions.includes('expense.review'));
+    assert.ok(!P.TRAVEL.permissions.includes('expense.read.all'));
+    assert.ok(!P.TRAVEL.permissions.includes('expense.review'));
   });
 
   test('Admin holds company-wide review and approval authority', () => {
@@ -184,26 +184,26 @@ describe('role boundaries', () => {
      * grant is trip.approve.all, which only Admin and Finance hold. */
     assert.ok(P.ASHISH.permissions.includes('trip.approve.all'));
     assert.ok(P.ASHISH.permissions.includes('expense.approve.all'));
-    assert.ok(P.RAVI.permissions.includes('trip.approve.all'));
-    assert.ok(P.RAVI.permissions.includes('expense.approve.all'));
+    assert.ok(P.FINANCE.permissions.includes('trip.approve.all'));
+    assert.ok(P.FINANCE.permissions.includes('expense.approve.all'));
   });
 
   test('a manager holds the TEAM tier of approval, not the company-wide tier', () => {
-    assert.ok(P.VIKRAM.permissions.includes('trip.approve'));
-    assert.ok(P.VIKRAM.permissions.includes('expense.approve'));
-    assert.ok(!P.VIKRAM.permissions.includes('trip.approve.all'),
+    assert.ok(P.MANAGER.permissions.includes('trip.approve'));
+    assert.ok(P.MANAGER.permissions.includes('expense.approve'));
+    assert.ok(!P.MANAGER.permissions.includes('trip.approve.all'),
       'a manager must not hold company-wide approval authority');
-    assert.ok(!P.VIKRAM.permissions.includes('expense.approve.all'),
+    assert.ok(!P.MANAGER.permissions.includes('expense.approve.all'),
       'a manager must not hold company-wide expense approval authority');
   });
 
   test('Finance cannot manage employees', () => {
-    assert.ok(!P.RAVI.permissions.includes('employee.manage'));
+    assert.ok(!P.FINANCE.permissions.includes('employee.manage'));
   });
 
   test('only Admin holds audit.read', () => {
     assert.ok(P.ASHISH.permissions.includes('audit.read'));
-    for (const k of ['SURESH', 'VIKRAM', 'RAVI', 'SARA']) {
+    for (const k of ['TRAVELLER_ONE', 'MANAGER', 'FINANCE', 'TRAVEL']) {
       assert.ok(!P[k].permissions.includes('audit.read'), `${k} must not read the audit log`);
     }
   });
@@ -213,21 +213,21 @@ describe('role boundaries', () => {
   });
 
   test('an Admin CAN change someone else\'s roles', async () => {
-    await allowed(P.ASHISH, 'employee.updateRoles', { employeeId: SURESH });
+    await allowed(P.ASHISH, 'employee.updateRoles', { employeeId: TRAVELLER_ONE });
   });
 });
 
 /* ------------------------------------------------------------------ implicit manager */
 
 describe('the implicit manager role', () => {
-  test('Vikram is a manager and holds trip.approve', () => {
-    assert.ok(P.VIKRAM.roles.includes('manager'));
-    assert.ok(P.VIKRAM.permissions.includes('trip.approve'));
+  test('the manager is a manager and holds trip.approve', () => {
+    assert.ok(P.MANAGER.roles.includes('manager'));
+    assert.ok(P.MANAGER.permissions.includes('trip.approve'));
   });
 
   test('an employee with no direct reports is not an implicit manager', () => {
-    assert.equal(P.SURESH.isImplicitManager, false);
-    assert.ok(!P.SURESH.permissions.includes('trip.approve'));
+    assert.equal(P.TRAVELLER_ONE.isImplicitManager, false);
+    assert.ok(!P.TRAVELLER_ONE.permissions.includes('trip.approve'));
   });
 });
 
@@ -236,10 +236,10 @@ describe('the implicit manager role', () => {
 describe('landing surface is server-derived', () => {
   test('precedence: admin > finance > hr_travel > manager > employee', () => {
     assert.equal(P.ASHISH.surface, 'admin');
-    assert.equal(P.RAVI.surface, 'finance');
-    assert.equal(P.SARA.surface, 'hr_travel');
-    assert.equal(P.VIKRAM.surface, 'manager');
-    assert.equal(P.SURESH.surface, 'employee');
+    assert.equal(P.FINANCE.surface, 'finance');
+    assert.equal(P.TRAVEL.surface, 'hr_travel');
+    assert.equal(P.MANAGER.surface, 'manager');
+    assert.equal(P.TRAVELLER_ONE.surface, 'employee');
   });
 });
 

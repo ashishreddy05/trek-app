@@ -1,5 +1,12 @@
--- Remove the original demo roster from existing and newly initialized databases.
--- Applied migrations 001-004 stay unchanged so existing checksums remain valid.
+-- 005_remove_demo_employees.sql
+-- Removes the demo employees that the original pilot seed created.
+--
+-- REWRITTEN at pilot handover, when the demo roster was removed from 003
+-- itself. A database that ran the earlier 003 already ran the earlier 005 and
+-- is clean; this file remains as the cleanup for any database that has the
+-- older seed without its cleanup, and it now records an event only when it
+-- actually removed something.
+
 CREATE TEMP TABLE trek_demo_cleanup ON COMMIT DROP AS
 SELECT e.id FROM employee e
 JOIN (VALUES
@@ -28,7 +35,10 @@ UPDATE employee SET manager_id = NULL WHERE id IN (SELECT id FROM trek_demo_clea
 DELETE FROM account WHERE employee_id IN (SELECT id FROM trek_demo_cleanup);
 DELETE FROM employee WHERE id IN (SELECT id FROM trek_demo_cleanup);
 
+-- Recorded only when something was actually removed, so a clean database has a
+-- clean audit log.
 INSERT INTO audit_event (company_id, actor_label, action, entity_type, entity_id, detail, metadata)
-VALUES ('co_trek', 'system', 'company.demo_cleanup', 'company', 'co_trek',
-        'Removed original demo employee accounts',
-        jsonb_build_object('removed', (SELECT count(*) FROM trek_demo_cleanup)));
+SELECT 'co_trek', 'system', 'company.demo_cleanup', 'company', 'co_trek',
+       'Removed original demo employee accounts',
+       jsonb_build_object('removed', (SELECT count(*) FROM trek_demo_cleanup))
+WHERE EXISTS (SELECT 1 FROM trek_demo_cleanup);

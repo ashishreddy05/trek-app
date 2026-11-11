@@ -37,11 +37,11 @@ describe('hashing', () => {
 });
 
 describe('policy (PROVISIONAL — BD-10)', () => {
-  const who = { email: 'suresh.kumar@garageplug.com', name: 'Suresh Kumar' };
+  const who = { email: 'test.traveller.one@garageplug.test', name: 'Test Traveller One' };
   test('too short', () => assert.match(passwordProblem('short', who), /at least 6/));
   test('six characters are accepted', () => assert.equal(passwordProblem('violet', who), null));
-  test('contains the email address', () => assert.ok(passwordProblem('suresh.kumar-2026!', who)));
-  test('contains the name', () => assert.ok(passwordProblem('kumar is travelling', who)));
+  test('contains the email address', () => assert.ok(passwordProblem('test.traveller.one-2026!', who)));
+  test('contains the name', () => assert.ok(passwordProblem('traveller one is travelling', who)));
   test('contains the company name', () => assert.ok(passwordProblem('garageplug travel!', who)));
   test('obvious', () => assert.ok(passwordProblem('Password12!!', who)));
   test('digits only', () => assert.ok(passwordProblem('20262026202620', who)));
@@ -49,9 +49,9 @@ describe('policy (PROVISIONAL — BD-10)', () => {
 });
 
 describe('sign-in', () => {
-  const email = 'nadia.haddad@garageplug.com';
+  const email = 'test.traveller.two@garageplug.test';
 
-  test('setup: give Nadia a password', async () => {
+  test('setup: give the peer a password', async () => {
     await db.query(
       `INSERT INTO password_credential (account_id, hash)
        SELECT a.id, $2 FROM account a JOIN employee e ON e.id = a.employee_id WHERE e.work_email = $1
@@ -76,7 +76,7 @@ describe('sign-in', () => {
   });
 
   test('an employee with no password set cannot sign in', async () => {
-    const e = await login({ email: 'omar.farouk@garageplug.com', password: GOOD, ip: '127.0.0.3', requestId: 't' }).catch((x) => x);
+    const e = await login({ email: 'test.traveller.three@garageplug.test', password: GOOD, ip: '127.0.0.3', requestId: 't' }).catch((x) => x);
     assert.equal(e.status, 401);
   });
 });

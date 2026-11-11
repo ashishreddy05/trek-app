@@ -37,8 +37,9 @@ const COST_CENTERS = [
 /* id, code, name, email, dept, designation, grade, managerId, costCenter, location, joined, roles */
 const EMPLOYEES = [
   // Function roles. manager_id NULL by design — see BD-02.
-  // Temporary bootstrap account; personnel fields are test placeholders (migration 003).
-  ['emp_1000', 'TEST-ADMIN', 'Ashish Reddy', 'ashishreddy@garageplug.com', 'dep_adm', 'Temporary test administrator', 'G1', null, 'cc_ccadm01', 'Not configured', new Date().toISOString().slice(0, 10), ['employee', 'admin']],
+  // The two administrators, matching migration 003 exactly.
+  ['emp_1000', 'EMP-002', 'Ashish Reddy', 'ashishreddy@garageplug.com', 'dep_adm', 'Administrator', 'G5', null, 'cc_ccadm01', 'Not specified', '2026-11-03', ['employee', 'admin']],
+  ['emp_1692', 'EMP-001', 'Abdul Mastan', 'abdul@garageplug.com', 'dep_adm', 'System Administrator', 'G5', null, 'cc_ccadm01', 'Not specified', '2026-11-03', ['employee', 'admin']],
 
 ];
 
@@ -140,7 +141,7 @@ export async function seedStaging({ quiet = false, reason = 'seed:staging', clie
   log(`  employees        → ${EMPLOYEES.length}`);
   log(`  accounts         → ${EMPLOYEES.length}, password identity each`);
   log('');
-  log('  Only the temporary admin is seeded; add real employees through the app.');
+  log('  Only the two administrators are seeded; add real employees through the app.');
   log('    Their own travel requests will be refused with 422 no_approval_route.');
 
   return { employees: EMPLOYEES.length };

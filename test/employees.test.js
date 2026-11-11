@@ -57,25 +57,25 @@ describe('required fields', () => {
 });
 
 describe('uniqueness names the clashing employee', () => {
-  test('employee code clash reads "Already used by Suresh Kumar"', async () => {
-    const fields = await fieldsFrom({ ...VALID, employeeCode: 'GP-0231' });
-    assert.equal(fields.employeeCode, 'Already used by Suresh Kumar');
+  test('employee code clash reads "Already used by Test Traveller One"', async () => {
+    const fields = await fieldsFrom({ ...VALID, employeeCode: 'TST-0031' });
+    assert.equal(fields.employeeCode, 'Already used by Test Traveller One');
   });
 
   test('employee code clash is case-insensitive', async () => {
-    const fields = await fieldsFrom({ ...VALID, employeeCode: 'gp-0231' });
-    assert.equal(fields.employeeCode, 'Already used by Suresh Kumar');
+    const fields = await fieldsFrom({ ...VALID, employeeCode: 'tst-0031' });
+    assert.equal(fields.employeeCode, 'Already used by Test Traveller One');
   });
 
   test('work email clash names the holder', async () => {
-    const fields = await fieldsFrom({ ...VALID, workEmail: 'SURESH.KUMAR@garageplug.com' });
-    assert.equal(fields.workEmail, 'Already used by Suresh Kumar');
+    const fields = await fieldsFrom({ ...VALID, workEmail: 'TEST.TRAVELLER.ONE@garageplug.test' });
+    assert.equal(fields.workEmail, 'Already used by Test Traveller One');
   });
 
   test('uniqueness excludes the record being updated', async () => {
     const fields = await fieldsFrom(
-      { ...VALID, employeeCode: 'GP-0231', workEmail: 'suresh.kumar@garageplug.com' },
-      'emp_1231'
+      { ...VALID, employeeCode: 'TST-0031', workEmail: 'test.traveller.one@garageplug.test' },
+      'emp_t04'
     );
     assert.equal(fields, null, 'an employee may keep their own code and email');
   });
@@ -92,7 +92,7 @@ describe('email format', () => {
 
 describe('reporting relationships', () => {
   test('an employee cannot report to themselves', async () => {
-    const fields = await fieldsFrom({ ...VALID, managerId: 'emp_1231' }, 'emp_1231');
+    const fields = await fieldsFrom({ ...VALID, managerId: 'emp_t04' }, 'emp_t04');
     assert.equal(fields.managerId, 'An employee cannot report to themselves');
   });
 
@@ -102,14 +102,14 @@ describe('reporting relationships', () => {
   });
 
   test('a deeper reporting loop is refused (D-13)', async () => {
-    // Vikram (emp_1001) manages Suresh (emp_1231). Making Vikram report to Suresh
+    // the manager (emp_t01) manages the traveller (emp_t04). Making the manager report to the traveller
     // would close the loop.
-    const fields = await fieldsFrom({ ...VALID, managerId: 'emp_1231' }, 'emp_1001');
+    const fields = await fieldsFrom({ ...VALID, managerId: 'emp_t04' }, 'emp_t01');
     assert.equal(fields.managerId, 'That would create a reporting loop');
   });
 
   test('a valid manager passes', async () => {
-    assert.equal(await fieldsFrom({ ...VALID, managerId: 'emp_1001' }), null);
+    assert.equal(await fieldsFrom({ ...VALID, managerId: 'emp_t01' }), null);
   });
 });
 
@@ -207,17 +207,17 @@ describe('bulk import', () => {
 
   test('a manager resolves by email and by name', async () => {
     const byEmail = await importEmployees({
-      text: `${header},Manager\nGP-9105,A,a@garageplug.com,Sales,vikram.shetty@garageplug.com`,
+      text: `${header},Manager\nGP-9105,A,a@garageplug.com,Sales,test.manager@garageplug.test`,
       dryRun: true,
       actor: { employeeId: 'emp_1000', name: 'Ashish Reddy' },
     });
     const byName = await importEmployees({
-      text: `${header},Manager\nGP-9106,B,b@garageplug.com,Sales,Vikram Shetty`,
+      text: `${header},Manager\nGP-9106,B,b@garageplug.com,Sales,Test Manager`,
       dryRun: true,
       actor: { employeeId: 'emp_1000', name: 'Ashish Reddy' },
     });
     assert.equal(byEmail.results[0].ok, true);
-    assert.match(byEmail.results[0].message, /reports to Vikram Shetty/);
+    assert.match(byEmail.results[0].message, /reports to Test Manager/);
     assert.equal(byName.results[0].ok, true);
   });
 
@@ -242,11 +242,11 @@ describe('bulk import', () => {
 
   test('a duplicate email inside the paste is caught per row', async () => {
     const r = await importEmployees({
-      text: `${header}\nGP-9109,Clash,suresh.kumar@garageplug.com,Sales`,
+      text: `${header}\nGP-9109,Clash,test.traveller.one@garageplug.test,Sales`,
       dryRun: true,
       actor: { employeeId: 'emp_1000', name: 'Ashish Reddy' },
     });
     assert.equal(r.results[0].ok, false);
-    assert.match(r.results[0].message, /Already used by Suresh Kumar/);
+    assert.match(r.results[0].message, /Already used by Test Traveller One/);
   });
 });

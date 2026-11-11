@@ -29,10 +29,10 @@ before(async () => {
 
   const hash = await hashPassword(PASSWORD);
   for (const email of [
-    'suresh.kumar@garageplug.com',
-    'vikram.shetty@garageplug.com',
-    'nadia.haddad@garageplug.com',
-    'ravi.nambiar@garageplug.com',
+    'test.traveller.one@garageplug.test',
+    'test.manager@garageplug.test',
+    'test.traveller.two@garageplug.test',
+    'test.finance@garageplug.test',
   ]) {
     await db.query(
       `INSERT INTO password_credential (account_id, hash)
@@ -129,29 +129,29 @@ describe('static assets', () => {
 });
 
 describe('the permissions the UI offers', () => {
-  let sureshCookie;
-  let raviCookie;
+  let travellerOneCookie;
+  let financeCookie;
 
   before(async () => {
-    sureshCookie = await loginAs('suresh.kumar@garageplug.com');
-    raviCookie = await loginAs('ravi.nambiar@garageplug.com');
+    travellerOneCookie = await loginAs('test.traveller.one@garageplug.test');
+    financeCookie = await loginAs('test.finance@garageplug.test');
   });
 
   test('Finance can read every trip — approving a budget needs to see it', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips?scope=all`, { headers: { cookie: raviCookie } });
+    const res = await fetch(`${baseUrl}/api/v1/trips?scope=all`, { headers: { cookie: financeCookie } });
     assert.equal(res.status, 200, 'Finance must be able to read company trips');
     const body = await res.json();
     assert.ok(Array.isArray(body.data));
   });
 
   test('an employee still cannot read every trip', async () => {
-    const res = await fetch(`${baseUrl}/api/v1/trips?scope=all`, { headers: { cookie: sureshCookie } });
+    const res = await fetch(`${baseUrl}/api/v1/trips?scope=all`, { headers: { cookie: travellerOneCookie } });
     assert.equal(res.status, 403, 'an employee must not get company-wide trips');
   });
 
   test('a collection read needs no explicit scope', async () => {
     for (const path of ['/api/v1/trips', '/api/v1/expenses', '/api/v1/departments', '/api/v1/cost-centers']) {
-      const res = await fetch(`${baseUrl}${path}`, { headers: { cookie: sureshCookie } });
+      const res = await fetch(`${baseUrl}${path}`, { headers: { cookie: travellerOneCookie } });
       assert.equal(res.status, 200, `${path} must not require an explicit ?scope=`);
     }
   });

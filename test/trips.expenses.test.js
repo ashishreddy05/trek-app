@@ -29,26 +29,26 @@ import { multiplyRate, sumAmounts } from '../src/money.js';
 
 after(async () => { await db.close(); });
 
-const SURESH = 'emp_1231';  // Sales traveller (reports to Vikram)
-const NADIA = 'emp_1232';   // Sales traveller (peer, reports to Vikram)
-const VIKRAM = 'emp_1001';  // VP Sales (manager of Suresh and Nadia; manager_id is NULL)
-const RAVI   = 'emp_1002';  // Finance
-const SARA   = 'emp_1004';  // HR/Travel Lead (manager_id is NULL)
+const TRAVELLER_ONE = 'emp_t04';  // Sales traveller (reports to the manager)
+const TRAVELLER_TWO = 'emp_t05';   // Sales traveller (peer, reports to the manager)
+const MANAGER = 'emp_t01';  // Sales Manager (manager of the travellers; manager_id is NULL)
+const FINANCE   = 'emp_t02';  // Finance
+const TRAVEL   = 'emp_t03';  // HR/Travel Lead (manager_id is NULL)
 const ASHISH = 'emp_1000';  // Admin
 
 describe('Trips & Expenses — End-to-End Workflow', () => {
-  let pSuresh, pVikram, pNadia, pRavi, pAshish;
+  let pTravellerOne, pManager, pTravellerTwo, pFinance, pAshish;
   let tripId, exp1Id, exp2Id;
 
   test('setup principals', async () => {
-    pSuresh = await resolvePrincipal(db, SURESH);
-    pVikram = await resolvePrincipal(db, VIKRAM);
-    pNadia = await resolvePrincipal(db, NADIA);
-    pRavi = await resolvePrincipal(db, RAVI);
+    pTravellerOne = await resolvePrincipal(db, TRAVELLER_ONE);
+    pManager = await resolvePrincipal(db, MANAGER);
+    pTravellerTwo = await resolvePrincipal(db, TRAVELLER_TWO);
+    pFinance = await resolvePrincipal(db, FINANCE);
     pAshish = await resolvePrincipal(db, ASHISH);
-    assert.ok(pSuresh, 'Suresh exists');
-    assert.ok(pVikram, 'Vikram exists');
-    assert.equal(pSuresh.managerId, VIKRAM, 'Suresh reports to Vikram');
+    assert.ok(pTravellerOne, 'the traveller exists');
+    assert.ok(pManager, 'the manager exists');
+    assert.equal(pTravellerOne.managerId, MANAGER, 'the traveller reports to the manager');
   });
 
   test('employee can create a draft trip', async () => {
@@ -60,13 +60,13 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         endDate: '2026-12-05',
         currency: 'AED',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_1',
       ip: '127.0.0.1',
     });
 
     assert.ok(trip.id);
-    assert.equal(trip.employee_id, SURESH);
+    assert.equal(trip.employee_id, TRAVELLER_ONE);
     assert.equal(trip.destination, 'Dubai, UAE');
     assert.equal(trip.status, 'draft');
     assert.equal(trip.base_currency, 'INR');
@@ -94,7 +94,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         serviceFee: '150.00',
         note: 'Issued by Emirates Finance',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_2',
       ip: '127.0.0.1',
     });
@@ -114,7 +114,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         amount: '2000.00',
         currency: 'AED',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_3',
       ip: '127.0.0.1',
     });
@@ -129,7 +129,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
       () => addBudgetLine({
         tripId,
         input: { category: 'food', description: 'Dinner', amount: '100.00', currency: 'JPY' },
-        actor: pSuresh,
+        actor: pTravellerOne,
         requestId: 'req_3b',
         ip: '127.0.0.1',
       }),
@@ -147,13 +147,13 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         endDate: '2026-12-02',
         currency: 'AED',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_3c',
       ip: '127.0.0.1',
     });
 
     await assert.rejects(
-      () => submitTrip({ id: bare.id, actor: pSuresh, requestId: 'req_3d', ip: '127.0.0.1' }),
+      () => submitTrip({ id: bare.id, actor: pTravellerOne, requestId: 'req_3d', ip: '127.0.0.1' }),
       (err) => err.status === 422 && /budget line/i.test(err.message),
       'an empty budget has nothing to approve'
     );
@@ -169,7 +169,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         endDate: '2026-12-02',
         currency: 'INR',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_base_1',
       ip: '127.0.0.1',
     });
@@ -178,7 +178,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const line = await addBudgetLine({
       tripId: baseTrip.id,
       input: { category: 'travel', description: 'Local travel', amount: '500.00', currency: 'INR' },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_base_2',
       ip: '127.0.0.1',
     });
@@ -190,7 +190,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
       () => addBudgetLine({
         tripId: baseTrip.id,
         input: { category: 'food', description: 'Dinner', amount: '100.00', currency: 'AED' },
-        actor: pSuresh,
+        actor: pTravellerOne,
         requestId: 'req_base_3',
         ip: '127.0.0.1',
       }),
@@ -211,7 +211,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         topupFee: '0.00',
         serviceFee: '0.00',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_zero_1',
       ip: '127.0.0.1',
     });
@@ -231,7 +231,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         endDate: '2026-12-06',
         currency: 'AED',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_4',
       ip: '127.0.0.1',
     });
@@ -251,7 +251,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
           amount: '1250.50',
           currency: 'AED',
         },
-        actor: pSuresh,
+        actor: pTravellerOne,
         requestId: 'req_5',
         ip: '127.0.0.1',
       }),
@@ -261,7 +261,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
   });
 
   test('employee can submit their trip for approval', async () => {
-    const submitted = await submitTrip({ id: tripId, actor: pSuresh, requestId: 'req_6', ip: '127.0.0.1' });
+    const submitted = await submitTrip({ id: tripId, actor: pTravellerOne, requestId: 'req_6', ip: '127.0.0.1' });
 
     assert.equal(submitted.status, 'submitted');
     assert.ok(submitted.submitted_at);
@@ -286,7 +286,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
           endDate: '2026-12-06',
           currency: 'AED',
         },
-        actor: pSuresh,
+        actor: pTravellerOne,
         requestId: 'req_7',
         ip: '127.0.0.1',
       }),
@@ -296,17 +296,17 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
   });
 
   test('manager can see submitted trips in their reporting tree', async () => {
-    const { team } = await authorize(db, pVikram, 'trip.list', { scope: 'team' });
+    const { team } = await authorize(db, pManager, 'trip.list', { scope: 'team' });
     const list = await listTrips(db, { scope: 'team', team, status: 'submitted' });
 
     assert.ok(list.data.some((t) => t.id === tripId));
     const found = list.data.find((t) => t.id === tripId);
-    assert.equal(found.employee_name, 'Suresh Kumar');
+    assert.equal(found.employee_name, 'Test Traveller One');
   });
 
   test('an unrelated manager cannot approve a trip outside their reporting tree', async () => {
     await assert.rejects(
-      () => authorize(db, pNadia, 'trip.decide', { employeeId: SURESH, type: 'trip', id: tripId }),
+      () => authorize(db, pTravellerTwo, 'trip.decide', { employeeId: TRAVELLER_ONE, type: 'trip', id: tripId }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'a peer must not approve a trip'
     );
@@ -314,21 +314,21 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
 
   test('a manager with no reporting relationship cannot approve a trip', async () => {
     /* A manager holds trip.approve. It must not carry company-wide authority. */
-    const { team } = await authorize(db, pVikram, 'trip.decide', { employeeId: NADIA, type: 'trip', id: tripId });
-    assert.ok(team.has(NADIA) || !team.has(NADIA));
+    const { team } = await authorize(db, pManager, 'trip.decide', { employeeId: TRAVELLER_TWO, type: 'trip', id: tripId });
+    assert.ok(team.has(TRAVELLER_TWO) || !team.has(TRAVELLER_TWO));
   });
 
   test('manager can approve the submitted trip, and the approved budget is frozen', async () => {
     const approved = await decideTrip({
       id: tripId,
       decision: 'approve',
-      actor: pVikram,
+      actor: pManager,
       requestId: 'req_8',
       ip: '127.0.0.1',
     });
 
     assert.equal(approved.status, 'approved');
-    assert.equal(approved.decided_by, VIKRAM);
+    assert.equal(approved.decided_by, MANAGER);
     assert.ok(approved.decided_at);
     assert.equal(approved.approved_budget_base, '166500.00',
       'the approved budget is the sum of the budget lines at approval time');
@@ -351,26 +351,26 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         endDate: '2026-12-02',
         currency: 'AED',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_9',
       ip: '127.0.0.1',
     });
     await setFxPlan({
       tripId: other.id,
       input: { currency: 'AED', rateToBase: '83.25' },
-      actor: pSuresh, requestId: 'req_9a', ip: '127.0.0.1',
+      actor: pTravellerOne, requestId: 'req_9a', ip: '127.0.0.1',
     });
     await addBudgetLine({
       tripId: other.id,
       input: { category: 'travel', description: 'Flights', amount: '3000.00', currency: 'AED' },
-      actor: pSuresh, requestId: 'req_9b', ip: '127.0.0.1',
+      actor: pTravellerOne, requestId: 'req_9b', ip: '127.0.0.1',
     });
 
     await assert.rejects(
       () => issueFund({
         tripId: other.id,
         input: { kind: 'cash', amount: '5000.00', currency: 'AED' },
-        actor: pRavi,
+        actor: pFinance,
         requestId: 'req_9c',
         ip: '127.0.0.1',
       }),
@@ -383,7 +383,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const fund = await issueFund({
       tripId,
       input: { kind: 'cash', amount: '2000.00', currency: 'AED', note: 'Cash at issuance' },
-      actor: pRavi,
+      actor: pFinance,
       requestId: 'req_10',
       ip: '127.0.0.1',
     });
@@ -409,7 +409,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         currency: 'AED',
         paymentMethod: 'forex_card',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_11',
       ip: '127.0.0.1',
     });
@@ -432,7 +432,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         currency: 'AED',
         paymentMethod: 'cash',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_12',
       ip: '127.0.0.1',
     });
@@ -458,7 +458,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         currency: 'AED',
         paymentMethod: 'cash',
       },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_13',
       ip: '127.0.0.1',
     });
@@ -474,7 +474,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
       filename: 'hotel-folio.pdf',
       contentType: 'application/pdf',
       buffer: Buffer.from('%PDF-1.4 fake receipt bytes'),
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_14',
       ip: '127.0.0.1',
     });
@@ -489,7 +489,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
   });
 
   test('employee can submit their expenses', async () => {
-    const submitted = await submitExpense({ id: exp1Id, actor: pSuresh, requestId: 'req_15', ip: '127.0.0.1' });
+    const submitted = await submitExpense({ id: exp1Id, actor: pTravellerOne, requestId: 'req_15', ip: '127.0.0.1' });
     assert.equal(submitted.status, 'submitted');
   });
 
@@ -497,18 +497,18 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const approved = await decideExpense({
       id: exp1Id,
       decision: 'approve',
-      actor: pVikram,
+      actor: pManager,
       requestId: 'req_16',
       ip: '127.0.0.1',
     });
     assert.equal(approved.status, 'approved');
 
-    await submitExpense({ id: exp2Id, actor: pSuresh, requestId: 'req_17', ip: '127.0.0.1' });
+    await submitExpense({ id: exp2Id, actor: pTravellerOne, requestId: 'req_17', ip: '127.0.0.1' });
     const rejected = await decideExpense({
       id: exp2Id,
       decision: 'reject',
       reason: 'Client did not attend the dinner',
-      actor: pVikram,
+      actor: pManager,
       requestId: 'req_18',
       ip: '127.0.0.1',
     });
@@ -527,18 +527,18 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
         currency: 'AED',
         paymentMethod: 'cash',
       },
-      actor: pSuresh, requestId: 'req_19', ip: '127.0.0.1',
+      actor: pTravellerOne, requestId: 'req_19', ip: '127.0.0.1',
     });
-    await submitExpense({ id: pending.id, actor: pSuresh, requestId: 'req_20', ip: '127.0.0.1' });
+    await submitExpense({ id: pending.id, actor: pTravellerOne, requestId: 'req_20', ip: '127.0.0.1' });
 
     await assert.rejects(
-      () => submitReconciliation({ tripId, input: {}, actor: pSuresh, requestId: 'req_21', ip: '127.0.0.1' }),
+      () => submitReconciliation({ tripId, input: {}, actor: pTravellerOne, requestId: 'req_21', ip: '127.0.0.1' }),
       (err) => err.status === 422 && /awaiting approval/i.test(err.message),
       'money still in flight makes the balance wrong'
     );
 
     await decideExpense({
-      id: pending.id, decision: 'approve', actor: pVikram, requestId: 'req_22', ip: '127.0.0.1',
+      id: pending.id, decision: 'approve', actor: pManager, requestId: 'req_22', ip: '127.0.0.1',
     });
   });
 
@@ -546,7 +546,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const rec = await submitReconciliation({
       tripId,
       input: { note: 'All receipts attached' },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_23',
       ip: '127.0.0.1',
     });
@@ -566,7 +566,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
       tripId,
       decision: 'reject',
       reason: 'The airport transfer receipt is missing',
-      actor: pRavi,
+      actor: pFinance,
       requestId: 'req_24',
       ip: '127.0.0.1',
     });
@@ -582,7 +582,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const resubmitted = await submitReconciliation({
       tripId,
       input: { note: 'Receipt attached' },
-      actor: pSuresh,
+      actor: pTravellerOne,
       requestId: 'req_25',
       ip: '127.0.0.1',
     });
@@ -597,7 +597,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const approved = await decideReconciliation({
       tripId,
       decision: 'approve',
-      actor: pRavi,
+      actor: pFinance,
       requestId: 'req_26',
       ip: '127.0.0.1',
     });
@@ -609,7 +609,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const closed = await settleTrip({
       tripId,
       input: { note: 'Balance recovered by transfer' },
-      actor: pRavi,
+      actor: pFinance,
       requestId: 'req_27',
       ip: '127.0.0.1',
     });
@@ -627,7 +627,7 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
           tripId, date: '2026-12-06', description: 'Late taxi', category: 'travel',
           amount: '50.00', currency: 'AED', paymentMethod: 'cash',
         },
-        actor: pSuresh, requestId: 'req_27', ip: '127.0.0.1',
+        actor: pTravellerOne, requestId: 'req_27', ip: '127.0.0.1',
       }),
       (err) => err.status === 409 && err.code === 'invalid_transition',
       'a closed trip is closed'
@@ -658,21 +658,21 @@ describe('Budget versus actual', () => {
 });
 
 describe('Negative Tests — Authorization & Security', () => {
-  let pSuresh, pNadia, pVikram, pSara, pRavi;
+  let pTravellerOne, pTravellerTwo, pManager, pTravel, pFinance;
 
   before(async () => {
-    pSuresh = await resolvePrincipal(db, SURESH);
-    pNadia = await resolvePrincipal(db, NADIA);
-    pVikram = await resolvePrincipal(db, VIKRAM);
-    pSara = await resolvePrincipal(db, SARA);
-    pRavi = await resolvePrincipal(db, RAVI);
+    pTravellerOne = await resolvePrincipal(db, TRAVELLER_ONE);
+    pTravellerTwo = await resolvePrincipal(db, TRAVELLER_TWO);
+    pManager = await resolvePrincipal(db, MANAGER);
+    pTravel = await resolvePrincipal(db, TRAVEL);
+    pFinance = await resolvePrincipal(db, FINANCE);
   });
 
   test('peer cannot read another employee expense — opaque 404', async () => {
     /* The guard decides on scope, not on existence: an out-of-scope id and a
      * nonexistent id must be indistinguishable. */
     await assert.rejects(
-      () => authorize(db, pNadia, 'expense.read', { employeeId: SURESH, type: 'expense', id: 'exp_mock' }),
+      () => authorize(db, pTravellerTwo, 'expense.read', { employeeId: TRAVELLER_ONE, type: 'expense', id: 'exp_mock' }),
       (err) => err.status === 404 && err.code === 'not_found',
       'out-of-scope expense read must return opaque 404'
     );
@@ -680,7 +680,7 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('a manager cannot approve their own trip (selfForbidden)', async () => {
     await assert.rejects(
-      () => authorize(db, pVikram, 'trip.decide', { employeeId: VIKRAM, type: 'trip', id: 'trp_mock' }),
+      () => authorize(db, pManager, 'trip.decide', { employeeId: MANAGER, type: 'trip', id: 'trp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'manager cannot approve their own trip'
     );
@@ -688,7 +688,7 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('a manager cannot approve their own expense (selfForbidden)', async () => {
     await assert.rejects(
-      () => authorize(db, pVikram, 'expense.decide', { employeeId: VIKRAM, type: 'expense', id: 'exp_mock' }),
+      () => authorize(db, pManager, 'expense.decide', { employeeId: MANAGER, type: 'expense', id: 'exp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'manager cannot approve their own expense'
     );
@@ -696,15 +696,15 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('an unrelated manager cannot approve trip outside their reporting tree', async () => {
     await assert.rejects(
-      () => authorize(db, pSara, 'trip.decide', { employeeId: SURESH, type: 'trip', id: 'trp_mock' }),
+      () => authorize(db, pTravel, 'trip.decide', { employeeId: TRAVELLER_ONE, type: 'trip', id: 'trp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
-      'Sara cannot decide trips outside her reporting tree'
+      'the travel lead cannot decide trips outside her reporting tree'
     );
   });
 
   test('HR/Travel has no expense approval authority', async () => {
     await assert.rejects(
-      () => authorize(db, pSara, 'expense.decide', { employeeId: SURESH, type: 'expense', id: 'exp_mock' }),
+      () => authorize(db, pTravel, 'expense.decide', { employeeId: TRAVELLER_ONE, type: 'expense', id: 'exp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'HR/Travel cannot decide expenses'
     );
@@ -712,7 +712,7 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('an employee cannot issue funds', async () => {
     await assert.rejects(
-      () => authorize(db, pSuresh, 'trip.fund.create', { employeeId: SURESH, type: 'trip', id: 'trp_mock' }),
+      () => authorize(db, pTravellerOne, 'trip.fund.create', { employeeId: TRAVELLER_ONE, type: 'trip', id: 'trp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'funds are issued by Finance'
     );
@@ -720,7 +720,7 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('an employee cannot decide a reconciliation', async () => {
     await assert.rejects(
-      () => authorize(db, pSuresh, 'trip.reconciliation.decide', { employeeId: SURESH, type: 'trip', id: 'trp_mock' }),
+      () => authorize(db, pTravellerOne, 'trip.reconciliation.decide', { employeeId: TRAVELLER_ONE, type: 'trip', id: 'trp_mock' }),
       (err) => err.status === 403 && err.code === 'forbidden',
       'Finance decides reconciliations'
     );
@@ -728,7 +728,7 @@ describe('Negative Tests — Authorization & Security', () => {
 
   test('a manager cannot read the whole audit log', async () => {
     await assert.rejects(
-      () => authorize(db, pVikram, 'audit.read', {}),
+      () => authorize(db, pManager, 'audit.read', {}),
       (err) => err.status === 403 && err.code === 'forbidden',
       'only Admin reads the audit log'
     );
