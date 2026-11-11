@@ -65,6 +65,12 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 * `scripts/seed-test.js` refuses any database whose name does not end in `_test`. Keep that guard.
 * **To clear a database that already carries demo rows, rebuild it** (`scripts/recreate-app-db.js`): `audit_event` is append-only, so the seed-era rows cannot be deleted by any role.
 
+### 1.12 The Nav Offers What The Permissions Allow
+* The client decides which screens to exist by checking permission strings; the server decides what those strings grant. **When they disagree the failure is silent** — the API answers 403 while the person is told the screen does not exist.
+* `trip.approve` (a manager's team tier) and `trip.approve.all` (the company tier) are different permissions on purpose. A nav gate must check **both**, or it hides Approvals from exactly the admins and finance users who can use it. That was a real bug: the Approvals screen was missing for anyone who was not a direct manager.
+* `test/nav.permissions.test.js` reads the real client and the real matrix and fails if the two drift apart. It is why the Approvals screen is offered to admin, finance and manager — and to nobody else.
+* `scripts/ui-smoke.mjs` renders the real client against a running deployment and walks every screen for every role. It needs happy-dom, which is deliberately **not** a dependency of this project; install it separately and point `TREK_UI_HARNESS` at it.
+
 ---
 
 ## 2. Project Layout & Architecture Map
@@ -114,7 +120,9 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
     ├── audit.immutability.test.js
     ├── authz.matrix.test.js  # Adversarial authorization tests
     ├── employees.test.js
+    ├── nav.permissions.test.js# The nav must offer what the matrix allows
     ├── password.test.js
+    ├── seed.cleanliness.test.js # No demo people in the seed
     ├── trips.expenses.test.js# Domain & negative tests
     ├── trips.http.test.js    # Real HTTP network integration tests
     └── pilot.frontend.test.js # The client's contract with the server

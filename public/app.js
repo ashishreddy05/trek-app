@@ -320,7 +320,8 @@ function navItems() {
     items.push({ key: 'trips', label: 'My trips' });
     items.push({ key: 'expenses', label: 'My expenses' });
   }
-  if (has('trip.approve') || has('expense.approve')) {
+  if (has('trip.approve') || has('trip.approve.all') ||
+      has('expense.approve') || has('expense.approve.all')) {
     items.push({ section: 'Manager' });
     items.push({ key: 'approvals', label: 'Approvals' });
   }
