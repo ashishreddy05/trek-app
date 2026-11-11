@@ -54,6 +54,11 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 * Never add a manual `?v=2` cache-buster to the HTML — it is forgotten at the next deploy. The header does the job.
 * `test/pilot.frontend.test.js` asserts both.
 
+### 1.10 The Manual Is Part of the Product
+* `public/manual.js` is a classic script (no `export`, no `import`) — it is loaded with a plain `<script>` tag before `app.js`. An ES module export there is a syntax error that takes the whole app down.
+* It is **kept true by a test**, not by discipline: `test/manual.test.js` asserts that every error message the manual quotes is really produced by the code, that every state it lists exists in the schema, that every screen it names exists in the app, and that the roles it describes match the permission matrix.
+* **So: if you change a message, a state or a screen, the manual changes with it, or the build fails.** That is the point — a help system that drifts is worse than none, because people trust it.
+
 ---
 
 ## 2. Project Layout & Architecture Map
@@ -70,6 +75,7 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 ├── migrations/               # Sequential forward-only SQL migrations (001 - 009)
 ├── public/                   # Vanilla frontend client (no build step)
 │   ├── app.js                # Single-page UI application logic & views
+│   ├── manual.js             # The in-app manual (workflow, screens, messages)
 │   ├── index.html            # Application shell
 │   └── styles.css            # Responsive styles & design system tokens
 ├── scripts/                  # Administrative and deployment scripts

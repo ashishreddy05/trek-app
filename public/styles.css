@@ -381,3 +381,155 @@ tbody tr.clickable:hover { background: var(--canvas); }
   .kv > dt { padding-bottom: 0; border-bottom: none; }
   table { display: block; overflow-x: auto; }
 }
+
+/* ============================================================ the manual
+ *
+ * A help system inside the app: a small icon in the sidebar opens a panel
+ * with the whole workflow, every screen, the money rules and the messages
+ * that go wrong — searchable, and offline.
+ */
+
+.man-icon { display: inline-flex; align-items: center; }
+.man-icon svg { width: 16px; height: 16px; }
+.man-open { justify-content: space-between; }
+
+.man-scrim {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(20, 52, 42, .38);
+  backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  animation: man-fade .16s ease-out;
+}
+@keyframes man-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.man-panel {
+  width: min(920px, 100%);
+  max-height: min(86vh, 760px);
+  background: var(--surface);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: man-rise .18s ease-out;
+}
+@keyframes man-rise { from { opacity: 0; transform: translateY(10px) scale(.99); } to { opacity: 1; transform: none; } }
+
+.man-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  padding: 22px 26px 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.man-title { margin: 0; font-size: 19px; font-weight: 600; }
+.man-sub { margin: 4px 0 0; font-size: 13px; color: var(--ink-62); }
+.man-close {
+  border: none; background: transparent; cursor: pointer;
+  color: var(--ink-50); font-size: 15px; line-height: 1;
+  padding: 6px 8px; border-radius: var(--r-sm);
+}
+.man-close:hover { background: var(--canvas); color: var(--ink); }
+
+.man-search { padding: 14px 26px; border-bottom: 1px solid var(--line-soft); }
+.man-search input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  background: var(--canvas);
+  color: var(--ink);
+}
+.man-search input:focus { outline: 2px solid var(--green); outline-offset: -1px; background: var(--surface); }
+
+.man-body { display: grid; grid-template-columns: 190px 1fr; min-height: 0; flex: 1; }
+
+.man-nav {
+  border-right: 1px solid var(--line-soft);
+  padding: 16px 12px;
+  display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto;
+}
+.man-nav-item {
+  border: none; background: transparent; cursor: pointer;
+  text-align: left; padding: 8px 10px;
+  border-radius: var(--r-sm);
+  font-size: 13px; color: var(--ink-62);
+}
+.man-nav-item:hover { background: var(--canvas); color: var(--ink); }
+.man-nav-item.active { background: var(--mint); color: var(--green); font-weight: 600; }
+
+.man-content { padding: 22px 26px 32px; overflow-y: auto; }
+
+.man-intro { font-size: 13.5px; color: var(--ink-72); margin: 0 0 18px; line-height: 1.55; }
+.man-sub {
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-50); margin: 20px 0 8px;
+}
+
+.man-stages { list-style: none; margin: 0; padding: 0; }
+.man-stage { padding: 14px 0; border-top: 1px solid var(--line-soft); }
+.man-stage:first-child { border-top: none; padding-top: 0; }
+.man-stage-head { display: flex; gap: 12px; align-items: flex-start; }
+.man-num {
+  flex: 0 0 24px; height: 24px; border-radius: 50%;
+  background: var(--mint); color: var(--green);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+.man-stage-name { font-size: 14.5px; font-weight: 600; }
+.man-who {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--ink-50); margin-top: 2px;
+}
+.man-p { margin: 8px 0 0 36px; font-size: 13.5px; line-height: 1.55; color: var(--ink-72); }
+.man-note {
+  margin: 6px 0 0 36px; font-size: 12.5px; line-height: 1.5; color: var(--ink-50);
+  border-left: 2px solid var(--line); padding-left: 10px;
+}
+
+.man-rows { display: flex; flex-direction: column; gap: 10px; }
+.man-row {
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--canvas);
+}
+.man-row-role { font-size: 13.5px; font-weight: 600; margin-bottom: 4px; }
+.man-row-can { font-size: 13px; line-height: 1.55; color: var(--ink-72); }
+.man-hit-from {
+  margin-top: 6px; font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--ink-38);
+}
+
+.man-notes { margin: 16px 0 0; padding-left: 18px; }
+.man-notes li { font-size: 13px; line-height: 1.6; color: var(--ink-72); margin-bottom: 6px; }
+
+.man-empty { padding: 30px 0; text-align: center; }
+.man-empty h3 { margin: 0 0 6px; font-size: 15px; }
+.man-empty p { margin: 0; font-size: 13px; color: var(--ink-62); }
+
+@media (max-width: 720px) {
+  .man-scrim { padding: 0; }
+  .man-panel { max-height: 100vh; height: 100%; border-radius: 0; }
+  .man-body { grid-template-columns: 1fr; }
+  .man-nav {
+    border-right: none; border-bottom: 1px solid var(--line-soft);
+    flex-direction: row; overflow-x: auto; padding: 10px 12px;
+  }
+  .man-nav-item { white-space: nowrap; }
+  .man-content { padding: 18px 16px 28px; }
+  .man-head { padding: 18px 18px 14px; }
+  .man-search { padding: 12px 18px; }
+}
+
+/* A troubleshooting entry is a question and an answer — it should read like
+ * one, not like a definition list. */
+.man-qa { display: flex; flex-direction: column; gap: 10px; }
+.man-qa-item {
+  padding: 13px 15px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--canvas);
+}
+.man-q { font-size: 13.5px; font-weight: 600; margin-bottom: 5px; }
+.man-a { font-size: 13px; line-height: 1.55; color: var(--ink-72); }

@@ -73,6 +73,12 @@ Comprehensive documentation is maintained in the [`docs/`](docs/) directory:
 | **[`docs/DEVELOPMENT_AND_TESTING.md`](docs/DEVELOPMENT_AND_TESTING.md)** | Local setup, environment configuration, migration commands, and test suites. |
 | **[`AGENTS.md`](AGENTS.md)** | Root-level architectural rules and operating invariants for AI agents and LLMs. |
 
+### The manual is inside the app
+
+**`public/manual.js`** — a small icon at the bottom of the sidebar opens the whole manual: the eight-stage workflow, who can do what, every state, the money rules, every screen, the vocabulary, and the messages that go wrong — searchable, and offline.
+
+It is **kept honest by a test**. `test/manual.test.js` asserts that every error message the manual quotes is really produced by the code, that every state it lists really exists in the schema, and that every screen it names really exists in the app. Change the wording in the code and the test fails until the manual is updated with it.
+
 ---
 
 ## Quick Start (Local Development)

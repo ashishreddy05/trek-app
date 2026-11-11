@@ -352,6 +352,17 @@ function renderApp() {
             <div class="rl">${esc(principal.roles.map((r) => ROLE_LABEL[r] ?? r).join(' · '))}</div>
           </div>
           <button class="nav-item" data-signout>Sign out</button>
+          <button class="nav-item man-open" data-manual title="Open the manual">
+            <span>Manual</span>
+            <span class="man-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M9.6 9.2a2.4 2.4 0 1 1 3.3 2.2c-.6.3-.9.8-.9 1.4v.3"></path>
+                <path d="M12 16.4h.01"></path>
+              </svg>
+            </span>
+          </button>
         </div>
       </aside>
       <main class="main" id="main"></main>
@@ -376,6 +387,8 @@ function renderApp() {
     principal = null;
     renderLogin();
   });
+
+  shell.querySelector('[data-manual]')?.addEventListener('click', () => openManual('workflow'));
 
   root.replaceChildren(shell);
   renderRoute(shell.querySelector('#main'), items);
