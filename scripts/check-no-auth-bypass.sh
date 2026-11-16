@@ -21,14 +21,38 @@ scan_dirs="src migrations scripts"
 # Collect the files once, then strip comments so prose cannot trip a pattern.
 files=$(find $scan_dirs -type f \( -name '*.js' -o -name '*.sql' -o -name '*.ts' \) 2>/dev/null)
 
+if [ -z "$files" ]; then
+  echo "✗ ERROR: No files found to scan in '$scan_dirs' — refusing to pass" >&2
+  exit 1
+fi
+
 strip_comments() {
   # //-line, #-line, --SQL-line, and /* */ blocks.
   sed -e 's#//.*$##' -e 's/^[[:space:]]*#.*$//' -e 's/--.*$//' "$1" \
-    | awk 'BEGIN{b=0} {
-        line=$0
-        while (match(line, /\/\*/)) { b=1; line=substr(line,1,RSTART-1) }
-        if (b==1) { if (match($0,/\*\//)) { b=0; line=substr($0,RSTART+2) } else { next } }
-        print line
+    | awk 'BEGIN { in_comment = 0 }
+      {
+        line = $0
+        out = ""
+        while (length(line) > 0) {
+          if (in_comment) {
+            if (match(line, /\*\//)) {
+              in_comment = 0
+              line = substr(line, RSTART + 2)
+            } else {
+              line = ""
+            }
+          } else {
+            if (match(line, /\/\*/)) {
+              out = out substr(line, 1, RSTART - 1)
+              in_comment = 1
+              line = substr(line, RSTART + 2)
+            } else {
+              out = out line
+              line = ""
+            }
+          }
+        }
+        if (length(out) > 0) print out
       }'
 }
 

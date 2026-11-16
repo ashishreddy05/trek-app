@@ -313,9 +313,12 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
   });
 
   test('a manager with no reporting relationship cannot approve a trip', async () => {
-    /* A manager holds trip.approve. It must not carry company-wide authority. */
-    const { team } = await authorize(db, pManager, 'trip.decide', { employeeId: TRAVELLER_TWO, type: 'trip', id: tripId });
-    assert.ok(team.has(TRAVELLER_TWO) || !team.has(TRAVELLER_TWO));
+    /* A manager holds trip.approve (team tier). It must not carry company-wide authority. */
+    await assert.rejects(
+      () => authorize(db, pManager, 'trip.decide', { employeeId: FINANCE, type: 'trip', id: 'trip_outside' }),
+      (err) => err.status === 403 && err.code === 'forbidden',
+      'a manager outside the reporting tree must be forbidden'
+    );
   });
 
   test('manager can approve the submitted trip, and the approved budget is frozen', async () => {

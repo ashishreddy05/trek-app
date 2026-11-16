@@ -30,29 +30,59 @@ export async function createSession(db, { accountId, employeeId, ip, userAgent }
   return { sessionId: row.id, token, expiresAt: row.expires_at };
 }
 
+const PRINCIPAL_CACHE_TTL_MS = 15_000;
+const MAX_PRINCIPAL_CACHE_SIZE = 500;
+const principalCache = new Map();
+
+export function invalidatePrincipalCache(employeeId = null) {
+  if (!employeeId) {
+    principalCache.clear();
+    return;
+  }
+  for (const [k, v] of principalCache.entries()) {
+    if (v.principal?.employeeId === employeeId) principalCache.delete(k);
+  }
+}
+
 /* Called on every authenticated request. Returns the principal or null.
  *
- * Re-resolving the principal per request is deliberate: it is what makes a role change,
- * a new direct report, or a deactivation take effect on the very next request rather
- * than at the next login. */
+ * Caches in memory for 15s to eliminate redundant roundtrips across requests,
+ * while invalidating immediately on logout, password change, or admin role updates. */
 export async function principalFromToken(db, token) {
   if (!token) return null;
+
+  const hash = sha256(token);
+  const cached = principalCache.get(hash);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.principal;
+  }
 
   const session = await db.one(
     `SELECT id, employee_id, expires_at, revoked_at
        FROM session
       WHERE token_hash = $1`,
-    [sha256(token)]
+    [hash]
   );
 
-  if (!session) return null;
-  if (session.revoked_at) return null;
-  if (new Date(session.expires_at) <= new Date()) return null;
+  if (!session) { principalCache.delete(hash); return null; }
+  if (session.revoked_at) { principalCache.delete(hash); return null; }
+  if (new Date(session.expires_at) <= new Date()) { principalCache.delete(hash); return null; }
 
   const principal = await resolvePrincipal(db, session.employee_id);
-  if (!principal) return null;                    // deactivated mid-session
+  if (!principal) { principalCache.delete(hash); return null; }                    // deactivated mid-session
 
-  return { ...principal, sessionId: session.id };
+  const full = { ...principal, sessionId: session.id };
+  if (principalCache.size >= MAX_PRINCIPAL_CACHE_SIZE) {
+    const sweepNow = Date.now();
+    for (const [k, v] of principalCache.entries()) {
+      if (v.expiresAt <= sweepNow || principalCache.size >= MAX_PRINCIPAL_CACHE_SIZE) {
+        principalCache.delete(k);
+      }
+    }
+  }
+  principalCache.set(hash, { principal: full, expiresAt: now + PRINCIPAL_CACHE_TTL_MS });
+  return full;
 }
 
 export async function revokeSession(db, { sessionId, actor, requestId, ip }) {
@@ -63,6 +93,7 @@ export async function revokeSession(db, { sessionId, actor, requestId, ip }) {
     [sessionId]
   );
   if (!row) return false;
+  invalidatePrincipalCache(row.employee_id);
 
   await audit(db, {
     actorId: actor?.employeeId ?? null,
@@ -83,6 +114,7 @@ export async function revokeSession(db, { sessionId, actor, requestId, ip }) {
 
 /* Password change: sign out every OTHER device, keep this one. */
 export async function revokeOtherSessions(db, { employeeId, keepSessionId }) {
+  invalidatePrincipalCache(employeeId);
   const r = await db.query(
     `UPDATE session SET revoked_at = now()
       WHERE employee_id = $1 AND revoked_at IS NULL AND id <> $2`,
@@ -95,6 +127,7 @@ export async function revokeOtherSessions(db, { employeeId, keepSessionId }) {
  * Employee deactivation calls this from the employee status endpoint; it lives here because session
  * revocation is this module's responsibility. */
 export async function revokeAllForEmployee(db, { employeeId, actor, requestId, reason }) {
+  invalidatePrincipalCache(employeeId);
   const rows = await db.many(
     `UPDATE session SET revoked_at = now()
       WHERE employee_id = $1 AND revoked_at IS NULL

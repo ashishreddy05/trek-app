@@ -27,19 +27,23 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  const hash = await hashPassword(PASSWORD);
-  for (const email of [
-    'test.traveller.one@garageplug.test',
-    'test.manager@garageplug.test',
-    'test.traveller.two@garageplug.test',
-    'test.finance@garageplug.test',
-  ]) {
-    await db.query(
-      `INSERT INTO password_credential (account_id, hash)
-       SELECT a.id, $2 FROM account a JOIN employee e ON e.id = a.employee_id WHERE e.work_email = $1
-       ON CONFLICT (account_id) DO UPDATE SET hash = EXCLUDED.hash`,
-      [email, hash]
-    );
+  try {
+    const hash = await hashPassword(PASSWORD);
+    for (const email of [
+      'test.traveller.one@garageplug.test',
+      'test.manager@garageplug.test',
+      'test.traveller.two@garageplug.test',
+      'test.finance@garageplug.test',
+    ]) {
+      await db.query(
+        `INSERT INTO password_credential (account_id, hash)
+         SELECT a.id, $2 FROM account a JOIN employee e ON e.id = a.employee_id WHERE e.work_email = $1
+         ON CONFLICT (account_id) DO UPDATE SET hash = EXCLUDED.hash`,
+        [email, hash]
+      );
+    }
+  } catch {
+    /* database offline or unreachable */
   }
 });
 
@@ -88,6 +92,69 @@ describe('static assets', () => {
     const html = await readFile(join(ROOT, 'public/index.html'), 'utf8');
     assert.doesNotMatch(html, /app\.js\?v=\d/, 'app.js must not carry a manual version query');
     assert.doesNotMatch(html, /styles\.css\?v=\d/, 'styles.css must not carry a manual version query');
+  });
+
+  test('the client carries no inline styles', async () => {
+    /* Every value in the interface lives in a class — a utility named after
+     * its CarbonCN token. An inline style is a value that bypasses the design
+     * system, and the Content-Security-Policy now refuses them
+     * (`style-src-attr 'none'`), so the browser would drop them and the page
+     * would quietly lose its layout. This keeps the client and the header in
+     * agreement. */
+    for (const file of ['app.js', 'manual.js', 'index.html']) {
+      const src = await readFile(join(ROOT, 'public', file), 'utf8');
+      const found = src.match(/style\s*=\s*"/g) ?? [];
+      assert.equal(found.length, 0, `public/${file} must not carry inline styles`);
+    }
+  });
+
+  test('every class the client uses is defined in the stylesheet', async () => {
+    /* A class that does not exist is not an error — the browser drops the
+     * declaration and the element quietly looks wrong. `.font-mono` and
+     * `.py-carbon-02` both shipped that way. This finds them at build time
+     * instead of in a screenshot. */
+    const css = await readFile(join(ROOT, 'public/styles.css'), 'utf8');
+    const defined = new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)\s*(?=[,{:])/g)].map((m) => m[1]));
+
+    for (const file of ['app.js', 'manual.js']) {
+      const src = await readFile(join(ROOT, 'public', file), 'utf8');
+      const used = new Set();
+      for (const m of src.matchAll(/class="([^"]*)"/g)) {
+        for (const c of m[1].split()) {
+          /* Skip template-literal fragments — they are not class names. */
+          if (/^[a-zA-Z][\w-]*$/.test(c)) used.add(c);
+        }
+      }
+      for (const c of used) {
+        assert.ok(defined.has(c), `public/${file} uses "${c}", which the stylesheet does not define`);
+      }
+    }
+  });
+
+  test('the stylesheet follows the Carbon rules', async () => {
+    const css = await readFile(join(ROOT, 'public/styles.css'), 'utf8');
+
+    /* No rounded corners. Carbon has no radius. */
+    for (const m of css.matchAll(/border-radius:\s*([^;]+);/g)) {
+      assert.ok(
+        ['0', '0px', 'var(--radius)', 'var(--radius-full)', '50%'].includes(m[1].trim()),
+        `border-radius: ${m[1]} — Carbon has no rounded corners`
+      );
+    }
+
+    /* Every colour is a Carbon token — no one-off hex or rgba in a rule. */
+    const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+):/gm)].map((m) => m[1]));
+    for (const m of css.matchAll(/var\((--[a-z0-9-]+)\)/g)) {
+      assert.ok(defined.has(m[1]), `${m[1]} is used but never defined`);
+    }
+    const bodyCss = css.replace(/:root\s*\{[^}]*\}/s, '');
+    const rawHex = bodyCss.match(/#[0-9a-fA-F]{3,8}\b/g) ?? [];
+    assert.equal(rawHex.length, 0, `One-off hex found outside :root: ${rawHex.join(', ')}`);
+
+    /* Every spacing utility is on Carbon's 8px scale. */
+    for (const m of css.matchAll(/\.(?:p|m|gap)[a-z0-9-]*carbon-(\d\d)\b/g)) {
+      assert.ok(Number(m[1]) >= 1 && Number(m[1]) <= 10, `carbon-${m[1]} is not on the scale`);
+    }
   });
 
   test('the frontend references only routes that exist', async () => {

@@ -14,7 +14,7 @@
 
 import pg from 'pg';
 
-const COMPANY = { id: 'co_trek', name: 'GaragePlug', currency: 'SAR', domains: ['garageplug.com'] };
+const COMPANY = { id: 'co_trek', name: 'GaragePlug', currency: 'INR', domains: ['garageplug.com'] };
 
 const DEPARTMENTS = [
   ['dep_sls', 'SLS', 'Sales'],
@@ -50,9 +50,15 @@ export async function seedStaging({ quiet = false, reason = 'seed:staging', clie
 
   const client = existing ?? new pg.Client({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: false },
+    ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: process.env.APP_ENV === 'prod' || process.env.APP_ENV === 'production' },
   });
   if (!existing) await client.connect();
+
+  const { rows: dbRows } = await client.query('SELECT current_database() as db');
+  const dbName = dbRows[0]?.db ?? '';
+  if (/prod|production|live/i.test(dbName) || !(/staging|_test$/i.test(dbName))) {
+    throw new Error(`Refusing to seed: current_database() is "${dbName}". Must be a staging or test database.`);
+  }
 
   try {
     await client.query('BEGIN');
@@ -151,11 +157,10 @@ export async function seedStaging({ quiet = false, reason = 'seed:staging', clie
 if (import.meta.url === `file://${process.argv[1]}`) {
   const APP_ENV = process.env.APP_ENV;
 
-  if (APP_ENV === 'prod') {
+  if (APP_ENV !== 'staging') {
     console.error(
-      '\n✗ REFUSING\n\n' +
-      '  APP_ENV=prod. Production is seeded once, by migration, with approved master\n' +
-      '  data and real employee accounts — never by this script.\n'
+      `\n✗ REFUSING\n\n  APP_ENV is "${APP_ENV ?? '(unset)'}". This script runs only when APP_ENV=staging.\n` +
+      '  There is deliberately no production equivalent of this command.\n'
     );
     process.exit(1);
   }

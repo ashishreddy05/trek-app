@@ -387,7 +387,10 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
     assert.equal(res.status, 200);
     assert.match(res.headers.get('content-type'), /text\/csv/);
     const text = await res.text();
-    const [header] = text.split('\n');
+    assert.doesNotMatch(text, /^"/, 'CSV output must not be JSON-stringified');
+    const lines = text.split('\n');
+    assert.ok(lines.length >= 2, 'CSV must have multiple lines');
+    const header = lines[0];
     assert.match(header, /Employee code/);
     assert.match(header, /Approved spend/);
   });

@@ -52,6 +52,36 @@ describe('audit_event is append-only', () => {
     );
   });
 
+  test('role-level REVOKE is enforced for trek_app if role exists', async () => {
+    const roleExists = await db.one("SELECT 1 FROM pg_roles WHERE rolname = 'trek_app'");
+    assert.ok(roleExists, 'migration 002 must have created the trek_app role');
+
+    /* The REVOKE is a property of the grants, so read it from the catalogue: this
+     * holds on every connection, including one that may not assume the role. */
+    const grants = await db.one(
+      `SELECT has_table_privilege('trek_app', 'audit_event', 'INSERT') AS can_insert,
+              has_table_privilege('trek_app', 'audit_event', 'SELECT') AS can_select,
+              has_table_privilege('trek_app', 'audit_event', 'UPDATE') AS can_update,
+              has_table_privilege('trek_app', 'audit_event', 'DELETE') AS can_delete,
+              pg_has_role(current_user, 'trek_app', 'USAGE')            AS can_switch`
+    );
+    assert.ok(grants.can_insert, 'trek_app must be able to append to audit_event');
+    assert.ok(grants.can_select, 'trek_app must be able to read audit_event');
+    assert.equal(grants.can_update, false, 'trek_app must NOT be able to update audit_event');
+    assert.equal(grants.can_delete, false, 'trek_app must NOT be able to delete audit_event');
+
+    /* Behavioural proof, for a connection allowed to assume the role (CI's superuser). */
+    if (!grants.can_switch) return;
+    await db.tx(async (t) => {
+      await t.query('SET LOCAL ROLE trek_app');
+      const row = await t.one('SELECT id FROM audit_event LIMIT 1');
+      await assert.rejects(
+        () => t.query('DELETE FROM audit_event WHERE id = $1', [row.id]),
+        /permission denied/i
+      );
+    });
+  });
+
   test('the audit module exposes no update or delete function', async () => {
     const mod = await import('../src/audit.js');
     for (const name of Object.keys(mod)) {

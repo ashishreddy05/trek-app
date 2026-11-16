@@ -5,6 +5,7 @@
  */
 
 import { authorize, rejectServerDerived } from '../authz/guard.js';
+import { parseQueryLimit, parseQueryStatus, parseQueryCursor, parseQueryDate, parseQueryId } from './validation.js';
 import * as db from '../db.js';
 import {
   listEmployees, readEmployee, createEmployee,
@@ -23,6 +24,15 @@ const notFound = { status: 404, body: { error: { code: 'not_found', message: 'No
 
 /* GET /api/v1/employees */
 export async function getEmployees(ctx) {
+  const limitVal = parseQueryLimit(ctx.query);
+  if (limitVal.error) return limitVal.error;
+
+  const statusVal = parseQueryStatus(ctx.query, 'employee_status');
+  if (statusVal.error) return statusVal.error;
+
+  const cursorVal = parseQueryCursor(ctx.query);
+  if (cursorVal.error) return cursorVal.error;
+
   const requested = ctx.query.get('scope') ?? undefined;
 
   /* Rule 5: a requested scope the caller lacks is 403, never a quietly empty list. */
@@ -36,9 +46,9 @@ export async function getEmployees(ctx) {
     selfId: ctx.principal.employeeId,
     search: ctx.query.get('search') ?? undefined,
     departmentId: ctx.query.get('departmentId') ?? undefined,
-    status: ctx.query.get('status') ?? undefined,
-    limit: Number(ctx.query.get('limit')) || 50,
-    cursor: ctx.query.get('cursor') ?? undefined,
+    status: statusVal.status,
+    limit: limitVal.limit,
+    cursor: cursorVal.cursor,
   });
 
   return { status: 200, body: result };
@@ -203,6 +213,18 @@ export async function getCostCenters(ctx) {
  * privilege level, and no such function in src/audit.js. Paginated — never load the
  * whole log. */
 export async function getAudit(ctx) {
+  const limitVal = parseQueryLimit(ctx.query);
+  if (limitVal.error) return limitVal.error;
+
+  const cursorVal = parseQueryId(ctx.query, 'cursor');
+  if (cursorVal.error) return cursorVal.error;
+
+  const fromVal = parseQueryDate(ctx.query, 'from');
+  if (fromVal.error) return fromVal.error;
+
+  const toVal = parseQueryDate(ctx.query, 'to');
+  if (toVal.error) return toVal.error;
+
   await authorize(ctx.db, ctx.principal, 'audit.read', {}, ctx.requestId);
 
   const result = await readAudit(ctx.db, {
@@ -210,10 +232,10 @@ export async function getAudit(ctx) {
     entityId: ctx.query.get('entityId') ?? undefined,
     actorId: ctx.query.get('actorId') ?? undefined,
     action: ctx.query.get('action') ?? undefined,
-    from: ctx.query.get('from') ?? undefined,
-    to: ctx.query.get('to') ?? undefined,
-    limit: Number(ctx.query.get('limit')) || 50,
-    cursor: ctx.query.get('cursor') ?? undefined,
+    from: fromVal.date,
+    to: toVal.date,
+    limit: limitVal.limit,
+    cursor: cursorVal.cursor,
   });
 
   return { status: 200, body: result };

@@ -101,10 +101,25 @@ describe('the nav offers what the permissions allow', () => {
       );
     }
 
-    /* The dashboard is the one screen several roles legitimately share. */
-    const dash = gatesFor('dashboard');
-    assert.deepEqual(
-      rolesHolding(dash), rolesHolding(['report.team', 'report.finance', 'report.all'])
-    );
+    /* The dashboard is not gated at all: it is the landing screen for all,
+     * and it is scoped to what the person may see. The test below covers it. */
+  });
+
+  test('the dashboard is offered to every role, because everyone can read their own', () => {
+    /* The dashboard is the landing screen for all — not a screen some roles
+     * are locked out of. It works because every role holds `trip.read.own`,
+     * which the guard resolves to the `own` scope of `dashboard.read`; a
+     * role with a wider grant (manager, finance, admin) still resolves to
+     * that wider scope first. */
+    const nav = client.slice(client.indexOf('function navItems()'), client.indexOf('function renderApp()'));
+    const first = nav.match(/const items = \[\{ key: '([a-z]+)'/);
+    assert.equal(first?.[1], 'dashboard', 'the dashboard is the first item in the nav');
+
+    for (const [role, held] of Object.entries(PERMISSIONS_BY_ROLE)) {
+      assert.ok(
+        held.includes('trip.read.own'),
+        `${role} must be able to read its own trips, or the dashboard would be empty for it`
+      );
+    }
   });
 });

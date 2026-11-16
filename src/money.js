@@ -17,14 +17,14 @@
  * floating-point rounding mode.
  */
 
-/** Amounts carry exactly two decimal places. */
+/** Amounts carry exactly two decimal places, at most 12 integer digits (NUMERIC(14,2)). */
 const AMOUNT_SCALE = 2n;
 
-/** Rates carry up to eight decimal places (NUMERIC(20,8)). */
+/** Rates carry up to eight decimal places, at most 12 integer digits (NUMERIC(20,8)). */
 const RATE_SCALE = 8n;
 
-const AMOUNT_RE = /^-?\d+(\.\d{1,2})?$/;
-const RATE_RE = /^-?\d+(\.\d{1,8})?$/;
+const AMOUNT_RE = /^-?\d{1,12}(\.\d{1,2})?$/;
+const RATE_RE = /^-?\d{1,12}(\.\d{1,8})?$/;
 
 /** Currency codes: three letters, uppercase. */
 const CURRENCY_RE = /^[A-Z]{3}$/;
@@ -47,8 +47,12 @@ export function toMinorUnits(value, { scale = AMOUNT_SCALE, what = 'amount' } = 
 
   const negative = s.startsWith('-');
   const digits = negative ? s.slice(1) : s;
-  const [whole, frac = ''] = digits.split('.');
+  const parts = digits.split('.');
+  if (parts.length > 2) throw new MoneyError(`${what} must be a decimal number`);
+  const [whole, frac = ''] = parts;
   if (!/^\d+$/.test(whole)) throw new MoneyError(`${what} must be a decimal number`);
+  if (frac !== '' && !/^\d+$/.test(frac)) throw new MoneyError(`${what} must be a decimal number`);
+  if (whole.length > 12) throw new MoneyError(`${what} exceeds allowed magnitude (max 12 integer digits)`);
 
   const allowed = Number(scale);
   if (frac.length > allowed) {
@@ -138,6 +142,12 @@ export function multiplyRate(amount, rate) {
   /* Half up: anything at or above .5 of the last place rounds away from zero. */
   const rounded = remainder * 2n >= divisor ? quotient + 1n : quotient;
 
+  /* The column is NUMERIC(14,2) — twelve integer digits and two decimals.
+   * Bound the product so it does not overflow PostgreSQL storage. */
+  if (rounded > 99_999_999_999_999n) {
+    throw new MoneyError('calculated amount exceeds allowed magnitude (max 12 integer digits)');
+  }
+
   return toDecimalString(negative ? -rounded : rounded);
 }
 
@@ -180,5 +190,8 @@ export function normaliseCurrency(value, { what = 'currency' } = {}) {
   return s;
 }
 
-/** The currency a trip's money is converted into for comparison. */
-export const BASE_CURRENCY = 'INR';
+/* NOTE: there is deliberately no BASE_CURRENCY constant here. The currency a
+ * trip's money is converted into is the company's base currency, read from the
+ * database (src/currency/service.js), because a base currency is a setting a
+ * company can change — not something buried in the code. A constant in two
+ * places is how they drift apart. */

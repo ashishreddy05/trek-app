@@ -9,17 +9,38 @@
  * The two administrators' password hashes are carried across, so nobody's
  * password changes. Sessions are not carried across — they must sign in again.
  *
- * Usage: node scripts/recreate-app-db.js <database-name>
+ * Usage: node scripts/recreate-app-db.js <database-name> [--allow <database-name>]
  */
 
 import pg from 'pg';
 import { readFile } from 'node:fs/promises';
 
 const target = process.argv[2];
-if (!target) {
-  console.error('Usage: node scripts/recreate-app-db.js <database-name>');
+const allowIdx = process.argv.indexOf('--allow');
+const allowed = allowIdx !== -1 ? process.argv[allowIdx + 1] : null;
+
+if (!target || target.startsWith('--')) {
+  console.error('Usage: node scripts/recreate-app-db.js <database-name> [--allow <database-name>]');
   process.exit(1);
 }
+
+/* The name goes straight into DROP DATABASE. Anything but a plain identifier
+ * is refused, so the statement cannot be broken out of. */
+if (!/^[a-z][a-z0-9_]*$/.test(target)) {
+  console.error(`Refusing to recreate database "${target}": the name must be lower-case letters, digits and underscores.`);
+  process.exit(1);
+}
+
+/* A test database is the only one this script will touch without being told
+ * exactly which database it is. Naming the database a second time is the
+ * deliberate act — there is no flag that turns the guard off. */
+if (!target.endsWith('_test') && allowed !== target) {
+  console.error(`Refusing to recreate database "${target}": its name does not end in "_test".`);
+  console.error('This will DROP the entire database, deleting all trips, expenses, receipts, and audit history.');
+  console.error(`To do it anyway, name the database again:  node scripts/recreate-app-db.js ${target} --allow ${target}`);
+  process.exit(1);
+}
+
 if (!process.env.DATABASE_URL_UNPOOLED) {
   console.error('DATABASE_URL_UNPOOLED must be set.');
   process.exit(1);
@@ -38,6 +59,14 @@ const conn = (target) => new pg.Client({
 const hashes = await (async () => {
   const c = conn(target);
   await c.connect();
+  /* The server is asked which database it is actually connected to. If that is
+   * not the database named on the command line, nothing is dropped. */
+  const { rows: [here] } = await c.query('SELECT current_database() AS name');
+  if (here.name !== target) {
+    await c.end();
+    console.error(`Refusing: the connection reached "${here.name}", not "${target}".`);
+    process.exit(1);
+  }
   const { rows } = await c.query(
     `SELECT e.work_email, pc.hash, pc.changed_at
        FROM password_credential pc
@@ -59,7 +88,10 @@ await c.query(
   [target]
 );
 await c.query(`DROP DATABASE IF EXISTS "${target}"`);
-await c.query(`CREATE DATABASE "${target}" OWNER neondb_owner`);
+/* The owner is whoever is connected — the role the migrations already run as.
+ * Hard-coding a vendor's role name made the script work on one platform only. */
+const { rows: [me] } = await c.query('SELECT current_user AS owner');
+await c.query(`CREATE DATABASE "${target}" OWNER "${String(me.owner).replace(/"/g, '""')}"`);
 console.log('  created');
 await c.end();
 
@@ -90,19 +122,28 @@ for (const f of await expectedMigrations()) {
 
 /* Restore the passwords. The hash format is portable; the account ids are not,
  * so the rows are re-pointed by email. */
+let restored = 0;
+let skipped = 0;
 for (const h of hashes) {
   const { rows } = await m.query(
     `SELECT a.id FROM account a JOIN employee e ON e.id = a.employee_id
       WHERE lower(e.work_email) = lower($1)`,
     [h.work_email]
   );
-  if (!rows.length) continue;
+  if (!rows.length) {
+    skipped++;
+    continue;
+  }
   await m.query(
     `INSERT INTO password_credential (account_id, hash, changed_at) VALUES ($1, $2, $3)
      ON CONFLICT (account_id) DO UPDATE SET hash = EXCLUDED.hash, changed_at = EXCLUDED.changed_at`,
     [rows[0].id, h.hash, h.changed_at]
   );
+  restored++;
   console.log(`  password restored for ${h.work_email}`);
+}
+if (skipped > 0) {
+  console.warn(`  ⚠️  ${skipped} account(s) from old database had no matching employee in migrations (their passwords could not be carried over)`);
 }
 
 /* The restricted runtime role. It stays NOLOGIN — it exists so the app can be
@@ -130,4 +171,4 @@ await g.connect();
 await g.query(`GRANT CONNECT ON DATABASE "${target}" TO trek_app`);
 await g.end();
 
-console.log(`\n✓ "${target}" rebuilt from the migrations in this repo.\n`);
+console.log(`\n✓ "${target}" rebuilt from the migrations in this repo. Restored ${restored} seed account password(s).\n`);

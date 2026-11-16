@@ -80,14 +80,23 @@ npm run check
 ### 3.3 The Test Fixtures
 `scripts/seed-test.js` loads the fixtures the suite needs: a manager, a finance user, a travel desk and five travellers, so reporting lines and approvals can be exercised.
 
-They are fixtures, not people. The names say so, and the addresses sit in the reserved `garageplug.test` domain (RFC 2606), which can never belong to a colleague and can never sign in to a deployment — the live allowlist is `garageplug.com` alone. The script refuses to run against any database whose name does not end in `_test`, so it can never touch company data.
+They are fixtures, not people. The names say so, and the addresses sit in the reserved `garageplug.test` domain (RFC 2606), which can never belong to a colleague and can never sign in to a production deployment — the production allowlist is `garageplug.com` alone, while development and test environments configure `LOGIN_EMAIL_DOMAINS=garageplug.com,garageplug.test`. The script refuses to run against any database whose name does not end in `_test`, so it can never touch company data.
 
 ### 3.4 Test Structure
-* [`test/trips.expenses.test.js`](../test/trips.expenses.test.js): Domain test suite covering trip/expense validation, reporting tree routing, self-approval prevention, decimal precision, and rollback on failure.
-* [`test/trips.http.test.js`](../test/trips.http.test.js): End-to-end HTTP integration tests running against an ephemeral HTTP server with real session cookies and network fetch calls.
-* [`test/authz.matrix.test.js`](../test/authz.matrix.test.js): Adversarial security test suite verifying every cell of the authorization matrix, opaque denial, and scope parameters.
-* [`test/password.test.js`](../test/password.test.js): Brute-force rate limiting, password hashing, and reset token validity.
-* [`test/audit.immutability.test.js`](../test/audit.immutability.test.js): Verifies PostgreSQL database triggers reject `UPDATE` and `DELETE` on `audit_event`.
+Thirteen files, 231 tests. What each one actually asserts:
+* [`test/trips.expenses.test.js`](../test/trips.expenses.test.js): the trip and expense state machines, the reporting tree, self-approval, decimal precision, and the guards that refuse a decision from outside the tree.
+* [`test/trips.http.test.js`](../test/trips.http.test.js): the whole workflow end to end over real HTTP — a real server, real session cookies, real fetches — from a draft trip to a settled reconciliation.
+* [`test/authz.matrix.test.js`](../test/authz.matrix.test.js): the authorization matrix against six principals, opaque denial (a record outside the tree and a record that does not exist must be indistinguishable), and the scope parameters.
+* [`test/employees.test.js`](../test/employees.test.js): employee master data — the reporting tree, role changes, deactivation, and the bulk import.
+* [`test/currency.test.js`](../test/currency.test.js): the money arithmetic — the reciprocal of a rate, the exactness of a conversion, and the refusal to guess a rate nobody has.
+* [`test/currency.http.test.js`](../test/currency.http.test.js): the currency registry and the remembered rates over HTTP, including the display-currency conversion on the dashboard.
+* [`test/validation.test.js`](../test/validation.test.js): the query-parameter validators and the enum allow-lists, against the schema's own `pg_enum`.
+* [`test/password.test.js`](../test/password.test.js): the scrypt hash, the password policy, and the sign-in path.
+* [`test/manual.test.js`](../test/manual.test.js): the in-app manual — that it opens, that every section is there, that the screens and endpoints it names exist, and that its role table matches the live matrix.
+* [`test/pilot.frontend.test.js`](../test/pilot.frontend.test.js): the client's contract with the server — every route the client calls must exist, the app script must not be cacheable, and the client must carry no inline styles.
+* [`test/nav.permissions.test.js`](../test/nav.permissions.test.js): that each role is offered the navigation its permissions allow, and nothing else.
+* [`test/audit.immutability.test.js`](../test/audit.immutability.test.js): that PostgreSQL refuses to `UPDATE` or `DELETE` an audit row, by trigger and by grant.
+* [`test/seed.cleanliness.test.js`](../test/seed.cleanliness.test.js): that no file in the repository names a person who is not a colleague or a fixture.
 
 ---
 
@@ -118,10 +127,16 @@ Open **`http://localhost:3000`** in your browser.
   ```
   Deletes transactional tables on staging and restores approved master seed data. Refuses to run against production databases or databases lacking a `staging.marker` audit row.
 
-* **Rebuild a Database from the Migrations**:
+* **Rebuild a Development Database from the Migrations**:
   ```bash
-  node scripts/recreate-app-db.js neondb
+  node scripts/recreate-app-db.js trek_dev_test
   ```
   Drops the database and rebuilds it from `migrations/`, carrying the administrators' password hashes across so nobody's password changes. Sessions are not carried across, so everyone signs in again.
+
+  The database name must end in `_test`. Any other name is refused unless it is named a second time, which is the deliberate act of dropping a database:
+  ```bash
+  node scripts/recreate-app-db.js trek_dev --allow trek_dev
+  ```
+  The script asks the server which database it is connected to before it drops anything, and refuses if that is not the database named on the command line.
 
   This is the only way to clear the audit log: `audit_event` is append-only by design, so the seed-era rows cannot be deleted by any role — the database has to be built again to leave one whose every row is real.

@@ -68,36 +68,39 @@ if (!confirmed) {
 
 const client = new pg.Client({
   connectionString: URL,
-  ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: false },
+  ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: process.env.APP_ENV === 'prod' || process.env.APP_ENV === 'production' },
 });
-
-/* Transactional tables, most-dependent first. Only tables named here are touched.
- *
- * Most of these do not exist yet — they are gated on unsigned decisions (see
- * GATED.md). They are listed now so that the reset does not silently skip a table
- * the moment it ships: an unlisted new table would survive a reset and poison the
- * next test run. Missing tables are skipped with a note, not an error. */
-const TRANSACTIONAL = [
-  'settlement',      // ST-03 (money type)
-  'advance',         // ST-03
-  'expense',         // BD-08, ST-03
-  'approval_step',   // BD-02, BD-09
-  'approval',        // BD-02, BD-09
-  'booking',
-  'policy_evaluation',
-  'document',        // D-20
-  'trip',            // BD-06, BD-07
-  'notification',
-  'session',
-  'password_reset_token',
-  'login_attempt',
-];
 
 /* Master data + identity, rebuilt from migration 003's approved values. */
 const MASTER = ['password_credential', 'account_identity', 'account', 'employee', 'cost_center', 'department', 'company'];
 
 /* NEVER touched, at any point, by anything in this file. */
 const PROTECTED = ['schema_migrations', 'audit_event'];
+
+/* Also never touched: the currency registry and the rates the company
+ * remembers. A reset clears the pilot's transactions, not the reference data
+ * the money rules are built on. */
+const REFERENCE = ['currency', 'exchange_rate'];
+
+/* The transactional tables are read from the catalogue, not written by hand.
+ *
+ * A hand-maintained list has to be updated every time a table ships, and the
+ * day it is not, that table survives the reset and poisons the next run — which
+ * is exactly what happened: the tables that actually shipped
+ * (trip_budget_line, trip_fx_plan, trip_fund, expense_bill,
+ * trip_reconciliation) were never on the list. They happened to be deleted
+ * anyway, because every one of them cascades from trip or expense, so the
+ * guard was not what protected them. */
+async function transactionalTables() {
+  const { rows } = await client.query(
+    `SELECT table_name FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      ORDER BY table_name`
+  );
+  return rows
+    .map((r) => r.table_name)
+    .filter((t) => !PROTECTED.includes(t) && !REFERENCE.includes(t) && !MASTER.includes(t));
+}
 
 async function tableExists(name) {
   const { rows } = await client.query(
@@ -111,6 +114,12 @@ async function tableExists(name) {
 
 async function main() {
   await client.connect();
+
+  const { rows: dbRows } = await client.query('SELECT current_database() as db');
+  const dbName = dbRows[0]?.db ?? '';
+  if (/prod|production|live/i.test(dbName) || !(/staging|_test$/i.test(dbName))) {
+    refuse(`current_database() is "${dbName}". Refusing to reset non-staging database.`);
+  }
 
   /* ---- guard 4: staging marker ---- */
   const marker = await client.query(
@@ -150,18 +159,81 @@ async function main() {
     console.log('');
 
     let deleted = 0;
-    for (const t of TRANSACTIONAL) {
-      if (!(await tableExists(t))) { console.log(`  ${t.padEnd(20)}→ not yet created (gated)`); continue; }
-      const r = await client.query(`DELETE FROM ${t}`);
+    for (const t of await transactionalTables()) {
+      const r = await client.query(`DELETE FROM "${t}"`);
       deleted += r.rowCount;
       console.log(`  ${t.padEnd(20)}→ ${r.rowCount} row(s) deleted`);
     }
 
+    /* First clear circular department head reference so employee deletes can succeed */
+    if (await tableExists('department')) {
+      await client.query('UPDATE department SET head_id = NULL');
+    }
+
     console.log('');
-    for (const t of MASTER) {
-      if (!(await tableExists(t))) continue;
-      const r = await client.query(`DELETE FROM ${t}`);
-      console.log(`  ${t.padEnd(20)}→ ${r.rowCount} row(s) cleared for rebuild`);
+    /* Clear non-pinned master data (preserving entities referenced by the permanent audit log) */
+    const auditPinnedActors = `SELECT DISTINCT actor_id FROM audit_event WHERE actor_id IS NOT NULL
+                               UNION SELECT DISTINCT entered_by FROM exchange_rate WHERE entered_by IS NOT NULL`;
+    const auditPinnedCompanies = `SELECT DISTINCT company_id FROM audit_event WHERE company_id IS NOT NULL`;
+
+    if (await tableExists('password_credential')) {
+      const r = await client.query(`
+        DELETE FROM password_credential
+        WHERE account_id NOT IN (
+          SELECT id FROM account WHERE employee_id IN (${auditPinnedActors})
+        )
+      `);
+      console.log(`  password_credential → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('account_identity')) {
+      const r = await client.query(`
+        DELETE FROM account_identity
+        WHERE account_id NOT IN (
+          SELECT id FROM account WHERE employee_id IN (${auditPinnedActors})
+        )
+      `);
+      console.log(`  account_identity    → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('account')) {
+      const r = await client.query(`
+        DELETE FROM account
+        WHERE employee_id NOT IN (${auditPinnedActors})
+      `);
+      console.log(`  account             → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('employee')) {
+      const r = await client.query(`
+        DELETE FROM employee
+        WHERE id NOT IN (${auditPinnedActors})
+      `);
+      console.log(`  employee            → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('cost_center')) {
+      const r = await client.query(`
+        DELETE FROM cost_center
+        WHERE id NOT IN (SELECT cost_center_id FROM employee WHERE id IN (${auditPinnedActors}))
+      `);
+      console.log(`  cost_center         → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('department')) {
+      const r = await client.query(`
+        DELETE FROM department
+        WHERE id NOT IN (SELECT department_id FROM employee WHERE id IN (${auditPinnedActors}))
+      `);
+      console.log(`  department          → ${r.rowCount} row(s) cleared`);
+    }
+
+    if (await tableExists('company')) {
+      const r = await client.query(`
+        DELETE FROM company
+        WHERE id NOT IN (${auditPinnedCompanies})
+      `);
+      console.log(`  company             → ${r.rowCount} row(s) cleared`);
     }
 
     await client.query('COMMIT');
@@ -184,7 +256,7 @@ async function main() {
   if (kept.length) {
     const c2 = new pg.Client({
       connectionString: URL,
-      ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: false },
+      ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: process.env.APP_ENV === 'prod' || process.env.APP_ENV === 'production' },
     });
     await c2.connect();
     let restored = 0;

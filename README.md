@@ -31,7 +31,7 @@ Trip Creation → Budget Preparation → Approval → Fund Allocation
 1. **Budget & currency planning**:
    * Estimated-expense lines per trip, in any currency, converted at the trip's own rate.
    * Cash and forex-card requirements, exchange rate, GST, forex top-up charges and other service fees, per currency.
-   * **Entered rates, not fetched ones**: no FX provider is integrated, and no rate is ever applied twice.
+   * **Remembered rates and European Central Bank FX synchronization**: reference rates can be synchronized on demand from the ECB feed (`POST /api/v1/exchange-rates/sync`) or recorded manually by Finance. Every conversion is an immutable snapshot, and no rate is ever auto-fetched during spending transactions.
 
 2. **Exact decimal money, everywhere**:
    * **Zero Floating-Point Arithmetic**: amounts are `NUMERIC(14,2)` in PostgreSQL and exact decimal strings in JavaScript, using BigInt minor units.
@@ -75,7 +75,7 @@ Comprehensive documentation is maintained in the [`docs/`](docs/) directory:
 
 ### The manual is inside the app
 
-**`public/manual.js`** — a small icon at the bottom of the sidebar opens the whole manual: the eight-stage workflow, who can do what, every state, the money rules, every screen, the vocabulary, and the messages that go wrong — searchable, and offline.
+**`public/manual.js`** — an icon at the foot of the sidebar opens the comprehensive manual (12 sections): the workflow, capability catalogue, who can do what, every state, money rules, currencies & rates, how do I guides, screens, settings, vocabulary, and error references — searchable, offline, and self-hosted.
 
 It is **kept honest by a test**. `test/manual.test.js` asserts that every error message the manual quotes is really produced by the code, that every state it lists really exists in the schema, and that every screen it names really exists in the app. Change the wording in the code and the test fails until the manual is updated with it.
 
@@ -123,11 +123,13 @@ Trek uses Node.js's native test runner (`node:test`) against an isolated test da
 # Run security scanning
 npm run check:no-bypass
 
-# Run full test suite (151 tests)
-npm test
+# Run full test suite (200+ tests)
+# The fixtures live in the reserved @garageplug.test domain, so that domain has
+# to be allowed for the command that seeds them — and only for that command.
+LOGIN_EMAIL_DOMAINS=garageplug.com,garageplug.test npm test
 
 # Run both together
-npm run check
+LOGIN_EMAIL_DOMAINS=garageplug.com,garageplug.test npm run check
 ```
 
 The suite covers the money arithmetic, the whole workflow end to end over real HTTP, the authorization matrix adversarially, and the frontend's contract with the server (every route the client calls must exist; the app script must not be cacheable).

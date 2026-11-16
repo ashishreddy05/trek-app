@@ -70,6 +70,39 @@ jobs:
           if [ $? -eq 0 ]; then echo "✗ reset ran without the opt-in variable"; exit 1; fi
           echo "✓ staging reset correctly refused both times"
 
+      # The real client, walked screen by screen, for every role. The suite above
+      # has already given the fixture people their passwords, so the smoke signs
+      # in as them for real.
+      - name: Install the UI harness
+        run: |
+          mkdir -p "$RUNNER_TEMP/trek-ui-harness"
+          cd "$RUNNER_TEMP/trek-ui-harness"
+          npm init -y >/dev/null
+          npm install happy-dom >/dev/null
+      - name: Walk every screen for every role
+        env:
+          TREK_UI_HARNESS: ${{ runner.temp }}/trek-ui-harness
+          TREK_UI_LOCAL: '1'
+        run: |
+          set -e
+          node src/http/server.js &
+          server=$!
+          trap 'kill $server 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000/healthz >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3000/healthz >/dev/null || { echo "✗ server did not start"; exit 1; }
+          # TREK_UI_EXPECT says which screens a role must NOT be offered. A screen
+          # a role should not see is a correct absence, not a failure.
+          TREK_UI_EXPECT='{"Employees":false,"Departments":false,"Approvals":false,"Audit log":false}' \
+            node scripts/ui-smoke.mjs http://127.0.0.1:3000 test.traveller.one@garageplug.test secret-passphrase
+          TREK_UI_EXPECT='{"Employees":false,"Departments":false,"Audit log":false}' \
+            node scripts/ui-smoke.mjs http://127.0.0.1:3000 test.manager@garageplug.test secret-passphrase
+          TREK_UI_EXPECT='{"Employees":false,"Departments":false,"Audit log":false}' \
+            node scripts/ui-smoke.mjs http://127.0.0.1:3000 test.finance@garageplug.test secret-passphrase
+          node scripts/ui-smoke.mjs http://127.0.0.1:3000 ashishreddy@garageplug.com secret-passphrase
+
   secrets:
     name: no secrets committed
     runs-on: ubuntu-latest

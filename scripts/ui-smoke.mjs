@@ -29,11 +29,17 @@ let Window;
 try {
   ({ Window } = require(HARNESS + '/node_modules/happy-dom/lib/index.js'));
 } catch {
+  if (process.env.CI) {
+    console.error('Error: happy-dom not found in CI. The UI smoke test must run in CI.');
+    process.exit(1);
+  }
   console.log('Skipped: happy-dom not found. Install it and set TREK_UI_HARNESS to run the UI harness.');
   process.exit(0);
 }
 
-const BASE = process.argv[2] ?? 'https://trek-app-beta.vercel.app';
+/* The base URL is joined with '/api/v1/...' by the client, so a trailing slash
+ * on the base would produce '//api/v1/...' — a path that is not the API. */
+const BASE = (process.argv[2] ?? process.env.APP_BASE_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
 const EMAIL = process.argv[3];
 const PASSWORD = process.argv[4];
 
@@ -105,6 +111,20 @@ function check(name, ok, detail = '') {
   console.log(`  ${ok ? '✔' : '✖'} ${name}${detail ? '  — ' + detail : ''}`);
 }
 const settle = () => new Promise((r) => setTimeout(r, 700));
+
+/* Wait for a condition, up to a few seconds.
+ *
+ * A fixed sleep is a race: the dashboard fills its currency switcher only
+ * after the API answers, and on a slow deployment that is later than any
+ * number of milliseconds you pick. */
+async function waitFor(fn, tries = 12) {
+  for (let i = 0; i < tries; i++) {
+    if (fn()) return true;
+    await settle();
+  }
+  return fn();
+}
+
 const bodyText = () => doc.body.textContent.replace(/\s+/g, ' ').trim();
 
 /* ------------------------------------------------------------------ run */
@@ -155,7 +175,7 @@ if (EMAIL) {
      * hold is that every screen offered renders, and that the ones a role
      * should have are actually there. */
     const roleExpect = JSON.parse(process.env.TREK_UI_EXPECT ?? '{}');
-    const navLabels = ['Employees', 'Departments', 'Dashboard', 'My trips', 'My expenses', 'Approvals', 'Audit log', 'My profile'];
+    const navLabels = ['Employees', 'Departments', 'Dashboard', 'My trips', 'My expenses', 'Approvals', 'Audit log', 'Settings'];
     for (const label of navLabels) {
       const before = calls.length;
       const btn = [...doc.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === label);
@@ -181,6 +201,21 @@ if (EMAIL) {
       console.log('      ' + text.slice(at, at + 240));
     }
 
+    /* 3b. The dashboard must let the reader choose the currency the money is
+     * shown in, and the list must come from the registry — the two pickers
+     * cannot drift apart. */
+    const dashBtn = [...doc.querySelectorAll('.nav-item')].find((b) => b.textContent.trim() === 'Dashboard');
+    if (dashBtn) {
+      dashBtn.click();
+      await settle();
+      /* The switcher is filled once the dashboard's own answer arrives. */
+      await waitFor(() => (doc.querySelector('[data-display]')?.options.length ?? 0) > 0);
+      const displaySelect = doc.querySelector('[data-display]');
+      const options = displaySelect ? [...displaySelect.options].map((o) => o.value) : [];
+      check('dashboard offers the currency switcher', options.length >= 5, options.join(','));
+      check('the base currency is in the list', options.includes('INR'), options.join(','));
+    }
+
     /* 4. The manual panel — the icon the user asked for. */
     const manualBtn = doc.querySelector('[data-manual]');
     check('manual button exists in the shell', !!manualBtn);
@@ -190,10 +225,13 @@ if (EMAIL) {
       const manualText = bodyText();
       check('manual opens', /Trek manual/i.test(manualText), manualText.slice(0, 70));
       const navItems = doc.querySelectorAll('.man-nav-item').length;
-      check('manual lists all sections', navItems === 8, `${navItems} nav items`);
+      check('manual lists all sections', navItems >= 11, `${navItems} nav items`);
 
       /* Every section must actually render its own content. */
-      const sections = ['workflow', 'roles', 'states', 'money', 'troubleshooting', 'screens', 'glossary', 'reference'];
+      const sections = [
+        'gettingStarted', 'workflow', 'roles', 'states', 'money', 'currencies',
+        'recipes', 'troubleshooting', 'screens', 'glossary', 'reference',
+      ];
       for (const s of sections) {
         const before = bodyText().length;
         const item = [...doc.querySelectorAll('.man-nav-item')].find((b) => b.dataset.manGo === s);

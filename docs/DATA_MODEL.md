@@ -138,8 +138,13 @@ erDiagram
 #### `company`
 * `id` (`text`, Primary Key, e.g. `'co_trek'`)
 * `name` (`text`, NOT NULL)
-* `currency` (`char(3)`, Default `'SAR'`)
+* `base_currency` (`char(3)`, Default `'INR'`)
 * `created_at` (`timestamptz`, Default `now()`)
+
+The company's base currency is stored here and read from here — it is a
+setting a company can change, not a constant in the code. Every stored
+`base_amount` is in it, which is why a trip spent across several currencies
+still has one comparable number.
 
 #### `department`
 * `id` (`text`, Primary Key, e.g. `'dep_sls'`)
@@ -169,8 +174,8 @@ erDiagram
 * `designation` (`text`, NOT NULL)
 * `grade` (`text`, Check `grade IN ('G1','G2','G3','G4','G5','G6')`)
 * `manager_id` (`text`, Foreign Key &rarr; `employee(id)`, Check `manager_id <> id`)
-* `location` (`text`, NOT NULL)
-* `joining_date` (`date`, NOT NULL)
+* `location` (`text`, Nullable, Default `'Not specified'`)
+* `joining_date` (`date`, Nullable)
 * `status` (`employee_status`: `'active' | 'inactive'`)
 * `roles` (`text[]`, Check roles subset of `{'employee', 'manager', 'hr_travel', 'finance', 'admin'}`)
 
@@ -193,17 +198,21 @@ erDiagram
 #### `login_attempt`
 * `id` (`bigserial`, Primary Key)
 * `email` (`text`, NOT NULL)
-* `ip` (`inet`, NOT NULL)
+* `ip` (`inet`, Nullable)
 * `success` (`boolean`, NOT NULL)
 * `at` (`timestamptz`, Default `now()`)
 
 #### `session`
-* `id` (`text`, Primary Key, 32-byte crypto random string)
+* `id` (`text`, Primary Key, `'ses_' || 16 hex characters`)
 * `account_id` (`text`, Foreign Key &rarr; `account(id)` ON DELETE CASCADE)
 * `employee_id` (`text`, Foreign Key &rarr; `employee(id)`)
+* `token_hash` (`text`, NOT NULL, Unique &mdash; the SHA-256 of the cookie token; the token itself is never stored)
+* `method` (`text`, NOT NULL, Default `'email_otp'`)
+* `user_agent` (`text`, Nullable)
+* `created_ip` (`inet`, Nullable)
 * `created_at` (`timestamptz`, Default `now()`)
 * `expires_at` (`timestamptz`, NOT NULL)
-* `last_active_at` (`timestamptz`, Default `now()`)
+* `revoked_at` (`timestamptz`, Nullable)
 
 ---
 
@@ -243,7 +252,7 @@ One estimated expense on a trip's budget. The category vocabulary is the SAME as
 * `amount` (`numeric(14,2)`, NOT NULL, the amount in `currency`)
 * `currency` (`char(3)`, NOT NULL)
 * `rate_to_base` (`numeric(20,8)`, NOT NULL) — the rate in force when the line was written
-* `base_amount` (`numeric(14,2)`, NOT NULL) — `round(amount * rate_to_base, 2)`, snapshotted
+* `base_amount` (`numeric(14,2)`, NOT NULL) — `round(amount * rate_to_base, 2)`, computed in `src/money.js` and snapshotted
 * **Constraints**: `CHECK (amount > 0)`, `CHECK (rate_to_base > 0)`
 
 #### `trip_fx_plan`
@@ -285,7 +294,7 @@ Represents an individual itemized expense incurred during a trip.
 * `amount` (`numeric(14,2)`, NOT NULL, the amount in `currency`)
 * `currency` (`char(3)`, NOT NULL, ISO-4217 code)
 * `rate_to_base` (`numeric(20,8)`, NOT NULL) — the rate in force when the expense was written
-* `base_amount` (`numeric(14,2)`, NOT NULL) — `round(amount * rate_to_base, 2)`, snapshotted
+* `base_amount` (`numeric(14,2)`, NOT NULL) — `round(amount * rate_to_base, 2)`, computed in `src/money.js` and snapshotted
 * `payment_method` (`payment_method`: `'cash' | 'forex_card' | 'card' | 'bank_transfer'`, Default `'cash'`)
 * `status` (`expense_status`: `'draft' | 'submitted' | 'approved' | 'rejected'`)
 * `submitted_at` (`timestamptz`)
@@ -371,10 +380,45 @@ Migrations are forward-only, sequentially numbered SQL scripts located in `migra
 7. `007_trip_currency.sql`: Adds destination `currency` column to `trip` table for international multi-currency travel planning.
 8. `008_optional_employee_fields.sql`: Makes `grade`, `location` and `joining_date` optional on `employee`.
 9. `009_budget_funds_bills.sql`: The budget, currency plan, funds, receipts and reconciliation — the rest of the workflow. Also folds the earlier expense categories into the shared vocabulary (`travel`, `accommodation`, `food`, `visa`, `sim_card`, `other`) and adds `payment_method`, `rate_to_base` and `base_amount` to `expense`.
+10. `010_currency_registry.sql`: The currency registry and the rates the company remembers. One `currency` list serves both currency pickers, so they cannot drift apart; `exchange_rate` holds one rate per pair per day. It also corrects `company.base_currency` to `INR` — the currency every stored amount is already in — so the setting agrees with the code that reads it.
+11. `011_global_currencies_and_rates.sql`: Expands the currency registry to all major global travel destinations (52 currencies total) and seeds standard initial market rates against INR.
+12. `012_currency_constraints_and_indexes.sql`: Sets default `company.base_currency` to `INR`, enforces foreign keys from all currency columns to `currency(code)`, and adds an index on `expense_bill(trip_id)`.
+
+### 3.2 The currency registry
+
+#### `currency`
+The currencies Trek knows about. One list, served to the interface, so the
+currency pickers are drawn from the same source.
+
+* `code` (`char(3)`, Primary Key, uppercase ISO-4217)
+* `name` (`text`, NOT NULL)
+* `symbol` (`text`, Nullable)
+* `minor_units` (`smallint`, Default `2`) — how many decimal places the currency has
+* `active` (`boolean`, Default `true`)
+
+#### `exchange_rate`
+The rates Trek remembers. One row per currency pair per day, so entering
+today's rate does not erase last week's.
+
+* `id` (`text`, Primary Key)
+* `from_code` (`char(3)`, Foreign Key &rarr; `currency(code)`)
+* `to_code` (`char(3)`, Foreign Key &rarr; `currency(code)`)
+* `rate` (`numeric(20,8)`, NOT NULL, `> 0`) — how many units of `to_code` one unit of `from_code` buys
+* `effective_on` (`date`, Default `CURRENT_DATE`)
+* `entered_by` (`text`, Foreign Key &rarr; `employee(id)`, Nullable)
+* `note` (`text`, Nullable)
+* **Constraints**: `UNIQUE (from_code, to_code, effective_on)`
+
+**A remembered rate is a default to offer, never a rewrite.** Every budget
+line, expense and fund stores the rate it used (`rate_to_base`) and the
+amount it produced (`base_amount`). Changing a remembered rate tomorrow does
+not touch money that was already booked, spent or issued.
 
 ### 3.1 The money rules
 
-* **No float ever touches a monetary value.** Amounts are `NUMERIC(14,2)`; the base amount is `round(amount * rate_to_base, 2)`, computed by PostgreSQL's exact numeric arithmetic and by `src/money.js` (BigInt minor units) on the client. The two agree to the paisa.
-* **Rates are entered, not fetched.** `rate_to_base` is supplied on the trip's currency plan. No FX provider is integrated, and no rate is applied twice.
+* **No float ever touches a monetary value.** Amounts are `NUMERIC(14,2)`; the base amount is `round(amount * rate_to_base, 2)`, computed once in `src/money.js` (BigInt minor units) and snapshotted on the row. The rounding matches PostgreSQL's `round(numeric, 2)` exactly &mdash; half away from zero, negatives included.
+* **Rates are remembered snapshots, never auto-fetched during transactions.** The company records the rates it works with (or synchronizes official reference rates on demand from the European Central Bank via `POST /api/v1/exchange-rates/sync`), one per pair per day, and Trek offers the latest one as a default. Rates are never queried live during transaction recording, and a rate is never applied twice.
 * **Every conversion is a snapshot.** Each money row stores the rate it used. Changing the rate later never rewrites money that was already budgeted, spent or issued — the arithmetic stays auditable without the plan's history.
+* **Showing money in another currency changes nothing.** A report asked for a display currency produces a second number beside each stored one, with the rate that produced it and the day that rate was effective. The stored amounts do not move.
+* **Converted figures are truncated, never rounded.** A converted amount is always equal to or smaller than the money it came from.
 * **One vocabulary.** Budget lines and expenses share one category list, so budget-versus-actual compares like with like.

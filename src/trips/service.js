@@ -30,6 +30,7 @@ import { tx } from '../db.js';
 import { audit, ACTIONS } from '../audit.js';
 import { validateTrip, validateBudgetLine, validateFxPlan, validateFund, WorkflowError } from './validate.js';
 import { multiplyRate, sumAmounts, normaliseCurrency } from '../money.js';
+import { baseCurrency, assertCurrencyKnown } from '../currency/service.js';
 
 /* Where a trip may go next, and who may move it. `any` in the actor column
  * means the trip's owner; `approver` means someone with the matching permission
@@ -61,6 +62,8 @@ export async function listTrips(db, { scope, team, employeeId, status, limit = 5
     add('t.employee_id = ANY($?)', ids);
   } else if (scope === 'all') {
     /* Company-wide: no id restriction at all. */
+  } else {
+    throw new WorkflowError(403, 'forbidden', `Unknown scope "${scope}".`);
   }
 
   if (status) add('t.status = $?', status);
@@ -100,9 +103,11 @@ export async function readTrip(db, id) {
             t.submitted_at, t.decided_at, t.decided_by, t.rejection_reason,
             t.approved_budget_base, t.created_at, t.updated_at,
             e.name AS employee_name, e.employee_code,
+            mgr.name AS manager_name, mgr.status AS manager_status,
             m.name AS decided_by_name
        FROM trip t
        JOIN employee e ON e.id = t.employee_id
+       LEFT JOIN employee mgr ON mgr.id = e.manager_id
        LEFT JOIN employee m ON m.id = t.decided_by
       WHERE t.id = $1`,
     [id]
@@ -174,14 +179,18 @@ export async function readTrip(db, id) {
 }
 
 export async function createTrip({ input, actor, requestId, ip }) {
-  const valid = validateTrip(input);
-
   return tx(async (client) => {
+    /* The base currency is the company's, not a constant in this file — so a
+     * change of base currency needs no code change. */
+    const base = await baseCurrency(client);
+    const valid = validateTrip(input, base);
+    await assertCurrencyKnown(client, valid.currency);
+
     const row = await client.one(
       `INSERT INTO trip (employee_id, destination, purpose, start_date, end_date, currency, base_currency, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'INR', 'draft')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
        RETURNING *`,
-      [actor.employeeId, valid.destination, valid.purpose, valid.startDate, valid.endDate, valid.currency]
+      [actor.employeeId, valid.destination, valid.purpose, valid.startDate, valid.endDate, valid.currency, base]
     );
 
     await audit(client, {
@@ -202,8 +211,6 @@ export async function createTrip({ input, actor, requestId, ip }) {
 }
 
 export async function updateTrip({ id, input, actor, requestId, ip }) {
-  const valid = validateTrip(input);
-
   return tx(async (client) => {
     const existing = await client.one('SELECT * FROM trip WHERE id = $1 FOR UPDATE', [id]);
     if (!existing) return null;
@@ -211,6 +218,9 @@ export async function updateTrip({ id, input, actor, requestId, ip }) {
     if (!['draft', 'changes_requested'].includes(existing.status)) {
       throw new WorkflowError(409, 'invalid_transition', `Only a draft trip can be edited; this trip is ${existing.status}.`);
     }
+
+    const valid = validateTrip(input, existing.currency);
+    await assertCurrencyKnown(client, valid.currency);
 
     const row = await client.one(
       `UPDATE trip
@@ -418,11 +428,11 @@ async function rateFor(client, tripId, currency) {
 }
 
 export async function addBudgetLine({ tripId, input, actor, requestId, ip }) {
-  const valid = validateBudgetLine(input);
-
   return tx(async (client) => {
     const trip = await client.one('SELECT * FROM trip WHERE id = $1 FOR UPDATE', [tripId]);
     if (!trip) return null;
+
+    const valid = validateBudgetLine(input, trip.currency);
 
     if (!['draft', 'changes_requested'].includes(trip.status)) {
       throw new WorkflowError(409, 'invalid_transition',
@@ -503,6 +513,7 @@ export async function setFxPlan({ tripId, input, actor, requestId, ip }) {
   const valid = validateFxPlan(input);
 
   return tx(async (client) => {
+    await assertCurrencyKnown(client, valid.currency);
     const trip = await client.one('SELECT * FROM trip WHERE id = $1 FOR UPDATE', [tripId]);
     if (!trip) return null;
 
@@ -589,11 +600,11 @@ export async function removeFxPlan({ tripId, planId, actor, requestId, ip }) {
  * `active`, which is when expenses may start being recorded.
  */
 export async function issueFund({ tripId, input, actor, requestId, ip }) {
-  const valid = validateFund(input);
-
   return tx(async (client) => {
     const trip = await client.one('SELECT * FROM trip WHERE id = $1 FOR UPDATE', [tripId]);
     if (!trip) return null;
+
+    const valid = validateFund(input, trip.currency);
 
     if (!['approved', 'active'].includes(trip.status)) {
       throw new WorkflowError(409, 'invalid_transition',

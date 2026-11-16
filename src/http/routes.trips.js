@@ -1,6 +1,7 @@
 /* HTTP route handlers for Trips. */
 
 import { authorize, rejectServerDerived } from '../authz/guard.js';
+import { parseQueryLimit, parseQueryStatus, parseQueryCursor } from './validation.js';
 import {
   listTrips, readTrip, createTrip, updateTrip, submitTrip, decideTrip,
 } from '../trips/service.js';
@@ -9,6 +10,15 @@ const notFound = { status: 404, body: { error: { code: 'not_found', message: 'No
 
 /* GET /api/v1/trips */
 export async function getTrips(ctx) {
+  const limitVal = parseQueryLimit(ctx.query);
+  if (limitVal.error) return limitVal.error;
+
+  const statusVal = parseQueryStatus(ctx.query, 'trip_status');
+  if (statusVal.error) return statusVal.error;
+
+  const cursorVal = parseQueryCursor(ctx.query);
+  if (cursorVal.error) return cursorVal.error;
+
   const requested = ctx.query.get('scope') ?? undefined;
 
   const { scope, team } = await authorize(
@@ -19,9 +29,9 @@ export async function getTrips(ctx) {
     scope,
     team,
     employeeId: ctx.principal.employeeId,
-    status: ctx.query.get('status') ?? undefined,
-    limit: Number(ctx.query.get('limit')) || 50,
-    cursor: ctx.query.get('cursor') ?? undefined,
+    status: statusVal.status,
+    limit: limitVal.limit,
+    cursor: cursorVal.cursor,
   });
 
   return { status: 200, body: result };

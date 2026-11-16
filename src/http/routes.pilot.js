@@ -25,8 +25,10 @@ import {
 } from '../bills/service.js';
 import {
   tripSummary, employeeSummary, dashboardTotals, pendingSettlements,
-  toCsv, EMPLOYEE_EXPORT_COLUMNS, TRIP_EXPORT_COLUMNS,
+  toCsv, exportColumns, describeDisplay,
 } from '../reports/service.js';
+import { baseCurrency } from '../currency/service.js';
+import { normaliseCurrency } from '../money.js';
 import { readExpense } from '../expenses/service.js';
 
 const notFound = { status: 404, body: { error: { code: 'not_found', message: 'Not found.' } } };
@@ -312,7 +314,7 @@ export async function getBillContent(ctx) {
     body: bill.content,
     headers: {
       'Content-Type': bill.content_type,
-      'Content-Disposition': `inline; filename="${bill.filename.replace(/"/g, '')}"`,
+      'Content-Disposition': `inline; filename="${bill.filename.replace(/["\r\n\0-\x1f\x7f]/g, '')}"`,
       'Content-Length': String(bill.byte_size),
     },
   };
@@ -441,6 +443,31 @@ export async function postTripSettlement(ctx) {
 
 /* ============================================================== reporting */
 
+/**
+ * The currency a report should be shown in.
+ *
+ * A reader may ask for a currency other than the one the company budgets in.
+ * The ask is checked against the currency registry, so a typo is an error
+ * rather than a screen full of blanks.
+ */
+async function resolveDisplay(ctx) {
+  const requested = ctx.query.get('display');
+  const base = await baseCurrency(ctx.db);
+  if (!requested) return { currency: base, error: null };
+
+  let code;
+  try {
+    code = normaliseCurrency(requested, { what: 'display currency' });
+  } catch (err) {
+    return { currency: base, error: err.message };
+  }
+  const known = await ctx.db.one(
+    'SELECT code FROM currency WHERE code = $1 AND active', [code]
+  );
+  if (!known) return { currency: base, error: `${code} is not a currency Trek knows about.` };
+  return { currency: code, error: null };
+}
+
 /* GET /api/v1/dashboard */
 export async function getDashboard(ctx) {
   const requested = ctx.query.get('scope') ?? undefined;
@@ -449,16 +476,25 @@ export async function getDashboard(ctx) {
     ctx.db, ctx.principal, 'dashboard.read', { scope: requested }, ctx.requestId
   );
 
-  const args = { scope, team, employeeId: ctx.principal.employeeId };
+  const display = await resolveDisplay(ctx);
+  if (display.error) {
+    return {
+      status: 422,
+      body: { error: { code: 'validation_failed', message: display.error, fields: { display: display.error } } },
+    };
+  }
 
-  const [totals, trips, employees, settlements] = await Promise.all([
+  const args = { scope, team, employeeId: ctx.principal.employeeId, display: display.currency };
+
+  const [info, totals, trips, employees, settlements] = await Promise.all([
+    describeDisplay(ctx.db, { display: display.currency }),
     dashboardTotals(ctx.db, args),
     tripSummary(ctx.db, args),
     employeeSummary(ctx.db, args),
     pendingSettlements(ctx.db, args),
   ]);
 
-  return { status: 200, body: { scope, totals, trips, employees, settlements } };
+  return { status: 200, body: { scope, display: info, totals, trips, employees, settlements } };
 }
 
 /* GET /api/v1/reports/export.csv?kind=employees|trips */
@@ -469,16 +505,25 @@ export async function getReportExport(ctx) {
     ctx.db, ctx.principal, 'report.export', { scope: requested }, ctx.requestId
   );
 
-  const args = { scope, team, employeeId: ctx.principal.employeeId };
+  const display = await resolveDisplay(ctx);
+  if (display.error) {
+    return {
+      status: 422,
+      body: { error: { code: 'validation_failed', message: display.error, fields: { display: display.error } } },
+    };
+  }
+
+  const args = { scope, team, employeeId: ctx.principal.employeeId, display: display.currency };
   const kind = (ctx.query.get('kind') ?? 'employees').toLowerCase();
+  const base = await baseCurrency(ctx.db);
 
   const csv = kind === 'trips'
-    ? toCsv(await tripSummary(ctx.db, args), TRIP_EXPORT_COLUMNS)
-    : toCsv(await employeeSummary(ctx.db, args), EMPLOYEE_EXPORT_COLUMNS);
+    ? toCsv(await tripSummary(ctx.db, args), exportColumns(base, 'trips', display.currency))
+    : toCsv(await employeeSummary(ctx.db, args), exportColumns(base, 'employees', display.currency));
 
   return {
     status: 200,
-    body: csv,
+    body: Buffer.from(csv, 'utf8'),
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="trek-${kind}-${new Date().toISOString().slice(0, 10)}.csv"`,

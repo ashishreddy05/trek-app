@@ -47,6 +47,8 @@ export const ACTIONS = {
   TRIP_BUDGET_REMOVE: 'trip.budget.remove',
   TRIP_FX_SET: 'trip.fx.set',
   TRIP_FX_REMOVE: 'trip.fx.remove',
+  // currencies & rates
+  RATE_RECORD: 'rate.record',
   // funds issued
   TRIP_FUND_ISSUE: 'trip.fund.issue',
   // expenses

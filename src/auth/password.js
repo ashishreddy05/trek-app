@@ -47,21 +47,28 @@ const norm = (e) => String(e ?? '').trim().toLowerCase();
 /* ------------------------------------------------------------------ lockout */
 
 async function lockedOut(email, ip) {
+  /* Lockout window is measured from the first failure in the threshold streak, so an
+   * attacker sending requests every 14 minutes cannot lock out a victim indefinitely. */
   const r = await pool.one(
-    `SELECT
-       (SELECT count(*)::int FROM login_attempt
-         WHERE lower(email) = $1 AND NOT success
-           AND at > now() - make_interval(mins => $3)
-           AND at > coalesce((SELECT max(at) FROM login_attempt
-                               WHERE lower(email) = $1 AND success), '-infinity'::timestamptz)
-       ) AS by_email,
-       (SELECT count(*)::int FROM login_attempt
-         WHERE ip = $2::inet AND NOT success
-           AND at > now() - make_interval(mins => $3)
-       ) AS by_ip`,
-    [email, ip ?? null, LOCKOUT.windowMinutes]
+    `WITH email_streak AS (
+       SELECT at FROM login_attempt
+        WHERE lower(email) = $1 AND NOT success
+          AND at > coalesce((SELECT max(at) FROM login_attempt WHERE lower(email) = $1 AND success), '-infinity'::timestamptz)
+        ORDER BY at DESC
+        LIMIT $3
+     ),
+     ip_streak AS (
+       SELECT at FROM login_attempt
+        WHERE ip = $2::inet AND NOT success
+        ORDER BY at DESC
+        LIMIT $4
+     )
+     SELECT
+       (SELECT CASE WHEN count(*) >= $3 AND now() < min(at) + make_interval(mins => $5) THEN true ELSE false END FROM email_streak) AS by_email,
+       (SELECT CASE WHEN count(*) >= $4 AND now() < min(at) + make_interval(mins => $5) THEN true ELSE false END FROM ip_streak) AS by_ip`,
+    [email, ip ?? null, LOCKOUT.perEmail, LOCKOUT.perIp, LOCKOUT.windowMinutes]
   );
-  return r.by_email >= LOCKOUT.perEmail || r.by_ip >= LOCKOUT.perIp;
+  return Boolean(r.by_email || r.by_ip);
 }
 
 /* Recorded in its own transaction, so a failure is kept even though the request errors. */
@@ -342,14 +349,18 @@ export async function checkLink(token) {
 }
 
 export async function completeLink({ token, password, ip, requestId }) {
-  const hash = typeof password === 'string' ? await hashPassword(password) : null;
-
   await pool.tx(async (db) => {
+    /* Take row lock first so concurrent replays of one token are serialized and reject immediately */
     const row = await loadLink(db, token, true);
     if (!linkUsable(row)) throw new AuthError(410, 'link_expired', LINK_EXPIRED);
 
     const problem = passwordProblem(password, { email: row.work_email, name: row.name });
     if (problem) throw new AuthError(422, 'validation_failed', problem, { fields: { password: problem } });
+
+    /* Mark token used immediately inside the lock before expensive scrypt hash */
+    await db.query('UPDATE password_reset_token SET used_at = now() WHERE id = $1', [row.id]);
+
+    const hash = await hashPassword(password);
 
     await db.query(
       `INSERT INTO password_credential (account_id, hash) VALUES ($1, $2)

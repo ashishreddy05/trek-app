@@ -17,6 +17,9 @@ import { principalFromToken } from '../auth/session.js';
 import { AuthError } from '../auth/password.js';
 import { AuthzError } from '../authz/guard.js';
 import { ValidationError } from '../employees/validate.js';
+import { initEnums } from './validation.js';
+
+initEnums(db.pool).catch(() => {});
 import {
   postLogin, postLogout, postForgotPassword, postCheckLink, postResetPassword,
   postChangePassword, getMe, patchMe,
@@ -35,6 +38,10 @@ import {
   postTripSettlement,
   getDashboard, getReportExport,
 } from './routes.pilot.js';
+import {
+  getCurrencies, getExchangeRates, getExchangeRateFor, postExchangeRate, postSyncRates,
+} from './routes.currency.js';
+import { getPermissionMatrix } from './routes.permissions.js';
 import {
   getTrips, getTrip, postTrip, patchTrip, postSubmitTrip, postDecideTrip,
 } from './routes.trips.js';
@@ -108,6 +115,16 @@ const ROUTES = [
   ['POST',   '/api/v1/trips/:id/reconciliation/decide',     postTripReconciliationDecision],
   ['POST',   '/api/v1/trips/:id/settle',                    postTripSettlement],
 
+  // ---- the permission matrix, for the manual ----
+  ['GET',    '/api/v1/permissions/matrix',         getPermissionMatrix],
+
+  // ---- currencies & rates ----
+  ['GET',    '/api/v1/currencies',                  getCurrencies],
+  ['GET',    '/api/v1/exchange-rates',               getExchangeRates],
+  ['POST',   '/api/v1/exchange-rates/sync',          postSyncRates],
+  ['GET',    '/api/v1/exchange-rates/:code',         getExchangeRateFor],
+  ['POST',   '/api/v1/exchange-rates',               postExchangeRate],
+
   // ---- reporting ----
   ['GET',    '/api/v1/dashboard',                   getDashboard],
   ['GET',    '/api/v1/reports/export.csv',         getReportExport],
@@ -131,7 +148,11 @@ function matchRoute(method, pathname) {
     const m = r.regex.exec(pathname);
     if (!m) continue;
     const params = {};
-    r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); });
+    try {
+      r.keys.forEach((k, i) => { params[k] = decodeURIComponent(m[i + 1]); });
+    } catch {
+      return null;
+    }
     return { ...r, params };
   }
   return null;
@@ -239,7 +260,9 @@ async function readBinaryBody(req, { maxBytes = 5 * 1024 * 1024 } = {}) {
 function parseCookies(header = '') {
   return Object.fromEntries(
     header.split(';').map((p) => p.trim().split('=')).filter((kv) => kv.length === 2)
-      .map(([k, v]) => [k, decodeURIComponent(v)])
+      .map(([k, v]) => {
+        try { return [k, decodeURIComponent(v)]; } catch { return [k, v]; }
+      })
   );
 }
 
@@ -252,22 +275,33 @@ function serialiseCookie({ name, value, httpOnly, secure, sameSite, path, maxAge
 
 /* Only a well-formed IP reaches the inet columns; anything else is recorded as null. */
 function clientIp(req) {
-  const fwd = req.headers['x-forwarded-for'];
-  const candidate = typeof fwd === 'string' && fwd.length
-    ? fwd.split(',')[0].trim()
-    : req.socket?.remoteAddress ?? null;
+  const trustProxy = process.env.TRUST_PROXY === 'true' || Boolean(process.env.VERCEL);
+  let candidate = null;
+  if (trustProxy) {
+    const fwd = req.headers['x-forwarded-for'];
+    if (typeof fwd === 'string' && fwd.length) {
+      const parts = fwd.split(',').map((s) => s.trim()).filter(Boolean);
+      candidate = parts.length ? parts[parts.length - 1] : null;
+    }
+  }
+  if (!candidate) candidate = req.socket?.remoteAddress ?? null;
   return candidate && isIP(candidate) ? candidate : null;
 }
 
-/* Inline style ATTRIBUTES are allowed (style-src-attr) because the approved UI uses
- * them. Inline <script> and <style> elements are not. */
+/* Inline style ATTRIBUTES are not allowed (style-src-attr 'none'). Every value
+ * lives in a class — a utility named after its CarbonCN token — so an inline
+ * style would be a value that bypasses the design system. The browser now
+ * enforces that, and test/pilot.frontend.test.js asserts the client is clean
+ * so the header is never quietly wrong. Inline <script> and <style> elements
+ * are not allowed either. */
 export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; " +
-    "img-src 'self' data:; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'; " +
+    "img-src 'self' data:; connect-src 'self'; font-src 'self'; form-action 'none'; " +
+    "frame-ancestors 'none'; base-uri 'none'",
 };
 
 function send(res, status, body, headers = {}, cookie = null) {
@@ -284,6 +318,7 @@ function send(res, status, body, headers = {}, cookie = null) {
    * of a JSON body. */
   if (body === null) res.end();
   else if (Buffer.isBuffer(body)) res.end(body);
+  else if (typeof body === 'string' && (h['content-type']?.startsWith('text/') || h['content-type']?.includes('csv'))) res.end(body);
   else res.end(JSON.stringify(body));
 }
 
@@ -340,10 +375,15 @@ function errorResponse(err) {
 
 export async function handle(req, res) {
   const requestId = randomUUID();
-  const url = new URL(req.url, config.baseUrl);
-  const path = url.pathname;
+  /* A target that begins with '//' is protocol-relative to the URL parser: it
+   * would move the first segment into the host ('//api/v1/me' becomes the host
+   * 'api'). Collapse the leading slashes before parsing, and the repeated
+   * ones after it, so '//api/v1/me' is the same request as '/api/v1/me' — not
+   * a page request the static handler answers with the app's HTML. */
+  const target = String(req.url ?? '/').replace(/^\/{2,}/, '/');
+  const url = new URL(target, config.baseUrl);
+  const path = url.pathname.replace(/\/{2,}/g, '/');
   const started = Date.now();
-
   if (path === '/healthz' || path === '/api/healthz') return send(res, 200, { ok: true });
   if (path === '/readyz' || path === '/api/readyz') {
     const [dbOk, migrated] = await Promise.all([db.healthy(), db.migrationsCurrent()]);
@@ -362,8 +402,8 @@ export async function handle(req, res) {
       : {};
     const cookies = parseCookies(req.headers.cookie);
 
-    /* The principal is re-resolved on every request, so deactivation and role changes
-     * take effect immediately. */
+    /* The principal is cached in memory for up to 15 seconds (capped at 500 entries)
+     * and swept on expiry or explicitly invalidated on logout, role changes, and reporting-line shifts. */
     const principal = route.opts.public
       ? null
       : await principalFromToken(db, cookies[config.session.cookieName]);

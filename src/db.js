@@ -1,9 +1,15 @@
 /* PostgreSQL access. Direct SQL through `pg` connection pool and transactions. */
 
+import dns from 'node:dns';
 import pg from 'pg';
 import { config } from './config.js';
 import { log } from './logging.js';
 import { expectedMigrations } from './migrations.js';
+
+// Ensure IPv4 is preferred over unreachable IPv6 routes on dual-stack environments
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 // Return Postgres DATE (OID 1082) as exact 'YYYY-MM-DD' string rather than local midnight Date.
 pg.types.setTypeParser(1082, (val) => val);
@@ -23,6 +29,7 @@ export const pool = new Pool({
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
   keepAlive: true,
+  keepAliveInitialDelayMillis: 5_000,
 });
 
 pool.on('error', (err) => log.error('pg.pool', { err }));
@@ -38,7 +45,7 @@ const CONNECTION_ERRORS = new Set([
 function isConnectionError(err) {
   if (!err) return false;
   if (CONNECTION_ERRORS.has(err.code)) return true;
-  return /terminated|closed the connection|connection ended|server closed/i.test(err.message ?? '');
+  return /terminated|closed the connection|connection ended|server closed|timeout exceeded when trying to connect/i.test(err.message ?? '');
 }
 
 export async function query(text, params) {

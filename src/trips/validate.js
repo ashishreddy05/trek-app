@@ -82,7 +82,7 @@ function moneyOrZero(value, field) {
   }
 }
 
-export function validateTrip(input) {
+export function validateTrip(input, defaultCurrency = 'INR') {
   const fields = {};
 
   const dest = text(input.destination, { max: 200, required: true, message: 'Destination is required', field: 'destination' });
@@ -98,9 +98,9 @@ export function validateTrip(input) {
     fields.endDate = 'End date cannot be earlier than start date';
   }
 
-  let currency = 'INR';
+  let currency = defaultCurrency;
   try {
-    currency = normaliseCurrency(input.currency ?? 'INR');
+    currency = normaliseCurrency(input.currency ?? defaultCurrency);
   } catch (err) {
     fields.currency = err.message;
   }
@@ -111,7 +111,7 @@ export function validateTrip(input) {
 }
 
 /** One estimated-expense line on the trip budget. */
-export function validateBudgetLine(input) {
+export function validateBudgetLine(input, defaultCurrency = 'INR') {
   const fields = {};
 
   const category = text(input.category, { required: true, message: 'Category is required', field: 'category' }).toLowerCase();
@@ -130,7 +130,7 @@ export function validateBudgetLine(input) {
 
   let currency = null;
   try {
-    currency = normaliseCurrency(input.currency ?? 'INR');
+    currency = normaliseCurrency(input.currency ?? defaultCurrency);
   } catch (err) {
     fields.currency = err.message;
   }
@@ -178,7 +178,7 @@ export function validateFxPlan(input) {
 }
 
 /** Funds handed over: cash, a forex card, or an additional tranche. */
-export function validateFund(input) {
+export function validateFund(input, defaultCurrency = 'INR') {
   const fields = {};
 
   const kind = text(input.kind, { required: true, message: 'Kind is required', field: 'kind' }).toLowerCase();
@@ -195,7 +195,7 @@ export function validateFund(input) {
 
   let currency = null;
   try {
-    currency = normaliseCurrency(input.currency ?? 'INR');
+    currency = normaliseCurrency(input.currency ?? defaultCurrency);
   } catch (err) {
     fields.currency = err.message;
   }

@@ -56,15 +56,6 @@ describe('the seed carries no demo people', () => {
   });
 
   test('no source file names a person who is not a colleague or a fixture', async () => {
-    /* Match the name column of an employee row, not prose — "Customer Success"
-     * is a department, not a person. */
-    const rowName = /'emp_[^']+',\s*'co_trek',\s*'[^']+',\s*'([^']+)'/g;
-
-    const files = [
-      'migrations/003_seed_master_data.sql',
-      'scripts/seed-test.js',
-      'scripts/seed-staging.js',
-    ];
     const allowed = new Set([
       'Abdul Mastan', 'Ashish Reddy',
       'Test Manager', 'Test Finance', 'Test Travel Lead',
@@ -72,12 +63,23 @@ describe('the seed carries no demo people', () => {
       'Test Traveller Four', 'Test Traveller Five',
     ]);
 
-    for (const f of files) {
-      const src = await read(f);
-      for (const [, name] of src.matchAll(rowName)) {
+    const sqlRow = /^\s*\('(emp_[^']+)',\s*'co_trek',\s*'[^']+',\s*'([^']+)'/gm;
+    const jsRow = /^\s*\['(emp_[^']+)',\s*'[^']+',\s*'([^']+)'/gm;
+
+    const files = [
+      { path: 'migrations/003_seed_master_data.sql', pattern: sqlRow },
+      { path: 'scripts/seed-test.js', pattern: jsRow },
+      { path: 'scripts/seed-staging.js', pattern: jsRow },
+    ];
+
+    for (const { path, pattern } of files) {
+      const src = await read(path);
+      const matches = [...src.matchAll(pattern)];
+      assert.ok(matches.length > 0, `${path} must have employee rows to inspect`);
+      for (const [, id, name] of matches) {
         assert.ok(
           allowed.has(name),
-          `${f} names ${name} — the only people a seed may name are the two administrators`
+          `${path} (${id}) names ${name} — the only people a seed may name are the two administrators or test fixtures`
         );
       }
     }

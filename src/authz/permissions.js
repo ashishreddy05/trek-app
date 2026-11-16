@@ -19,6 +19,13 @@
 
 /* ---- role -> permissions ------------------------------------------------- */
 
+/* EVERY ROLE HOLDS `trip.read.own`.
+ *
+ * A person can always see their own trips, whichever other hats they wear.
+ * That is what makes the personal dashboard available to everybody — the
+ * guard resolves a collection to the widest scope held, so a role with only
+ * `trip.read.own` still gets a dashboard of their own, while a manager or
+ * Finance still resolves to their wider scope. */
 export const PERMISSIONS_BY_ROLE = {
   employee: [
     'trip.create', 'trip.read.own',
@@ -30,12 +37,12 @@ export const PERMISSIONS_BY_ROLE = {
     'document.read.own', 'document.write.own',
   ],
   manager: [
-    'trip.read.team', 'trip.approve',
+    'trip.read.own', 'trip.read.team', 'trip.approve',
     'expense.read.team', 'expense.approve',
     'report.team', 'delegate.manage',
   ],
   hr_travel: [
-    'trip.read.all', 'booking.manage', 'document.manage',
+    'trip.read.own', 'trip.read.all', 'booking.manage', 'document.manage',
   ],
   finance: [
     'expense.read.all', 'expense.review',
@@ -43,19 +50,22 @@ export const PERMISSIONS_BY_ROLE = {
     /* Finance approves budgets company-wide and issues the funds. It must
      * therefore be able to READ every trip — the company-wide approve
      * permission is useless if the trip cannot be opened. */
-    'trip.read.all', 'trip.approve.all',
+    'trip.read.own', 'trip.read.all', 'trip.approve.all',
     'expense.approve.all',
     'trip.fund.manage', 'trip.reconcile.decide', 'trip.settle',
     'bill.read.all',
+    /* Finance records the exchange rates the company works with. */
+    'rate.manage',
   ],
   admin: [
     'employee.manage', 'department.manage', 'costcenter.manage',
     'policy.manage', 'workflow.manage', 'role.manage',
     'audit.read', 'report.all',
-    'trip.read.all', 'trip.approve.all',
+    'trip.read.own', 'trip.read.all', 'trip.approve.all',
     'expense.read.all', 'expense.approve.all',
     'trip.fund.manage', 'trip.reconcile.decide', 'trip.settle',
     'bill.read.all',
+    'rate.manage',
   ],
 };
 
@@ -145,8 +155,28 @@ export const OPERATIONS = {
   'trip.settle':                { scopes: { all: 'trip.settle' } },
 
   // ---- reporting ----
-  'dashboard.read': { collection: true, scopes: { team: 'report.team', finance: 'report.finance', all: 'report.all' } },
-  'report.export':  { collection: true, scopes: { team: 'report.team', finance: 'report.finance', all: 'report.all' } },
+  'dashboard.read': { collection: true, scopes: { own: 'trip.read.own', team: 'report.team', finance: 'report.finance', all: 'report.all' } },
+  'report.export':  { collection: true, scopes: { own: 'trip.read.own', team: 'report.team', finance: 'report.finance', all: 'report.all' } },
+
+  // ---- the manual ----
+  /* The manual draws its "who can do what" table from the real matrix, so a
+   * help system cannot drift from what the server enforces. Permission names
+   * are not a secret — the interface already shows each person which screens
+   * they have — and nothing here grants anything. */
+  'permission.matrix': { collection: true, scopes: { all: null } },
+
+  // ---- currencies & rates ----
+  /* Everybody may look at which currencies exist — the pickers need it to
+   * draw a list, and a currency is not a secret. */
+  'currency.list':  { collection: true, scopes: { all: null } },  /* Reading remembered rates is as open as reading the currency list: a rate
+   * is a number the company entered, and hiding it from the people who must
+   * use it would only make them retype it. */
+  'rate.list':      { collection: true, scopes: { all: null } },
+  /* Remembering a rate changes no booked money — it is a default to offer.
+   * Admin and Finance record the ones the company works with. */
+  'rate.record':    { scopes: { all: 'rate.manage' } },
+  /* Synchronizing official exchange rates with European Central Bank reference data. */
+  'rate.sync':      { scopes: { all: 'rate.manage' } },
 };
 
 /* Operations whose target is another employee's record and which must therefore

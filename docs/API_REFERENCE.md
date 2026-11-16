@@ -83,6 +83,57 @@ Revokes the current session and clears the cookie.
 ### `GET /api/v1/me`
 Fetches the currently authenticated principal profile and permissions.
 
+### `PATCH /api/v1/me`
+Updates the signed-in person's own contact number. Nothing else is editable here — every other field is an Admin operation.
+* **Payload**:
+  ```json
+  { "mobile": "+91 90000 00000" }
+  ```
+  `mobile` is the only accepted field. A body without `mobile` is refused with `422`.
+* **Response (200)**:
+  ```json
+  { "employee": { "id": "emp_1000", "mobile": "+91 90000 00000" } }
+  ```
+
+### `POST /api/v1/auth/password/forgot`
+Asks for a password reset link. The response is the same whether or not the address belongs to an active account, so the endpoint cannot be used to discover who has one.
+* **Payload**:
+  ```json
+  { "email": "ashishreddy@garageplug.com" }
+  ```
+* **Response (202)**:
+  ```json
+  { "ok": true, "message": "If that email belongs to an active Trek account, a reset link is on its way." }
+  ```
+
+### `POST /api/v1/auth/password/check`
+Tells the set-password screen whether a link is still usable.
+* **Payload**:
+  ```json
+  { "token": "<token from the link>" }
+  ```
+* **Response (200)**:
+  ```json
+  { "valid": true, "purpose": "reset", "firstName": "Ashish" }
+  ```
+  An expired or already-used token is refused with `410 link_expired`.
+
+### `POST /api/v1/auth/password/reset`
+Sets the password from an invite or reset link. The token is single use: using it voids every other live link for that account and signs out every device.
+* **Payload**:
+  ```json
+  { "token": "<token from the link>", "password": "a strong new password" }
+  ```
+* **Response (200)**: `{ "ok": true }`
+
+### `POST /api/v1/auth/password/change`
+Changes the password of the signed-in person. The current password is required.
+* **Payload**:
+  ```json
+  { "currentPassword": "...", "newPassword": "..." }
+  ```
+* **Response (200)**: `{ "ok": true }`
+
 ---
 
 ## 3. Trips Endpoints
@@ -91,7 +142,7 @@ Fetches the currently authenticated principal profile and permissions.
 Lists trips based on the caller's authorized scope.
 * **Query Parameters**:
   * `scope` (`own` | `team` | `all`): Defaults to user's highest allowed scope or `own`.
-  * `status` (`draft` | `submitted` | `approved` | `rejected`): Filter by status.
+  * `status` (`draft` | `submitted` | `approved` | `active` | `reconciliation_pending` | `reconciled` | `closed` | `changes_requested` | `rejected`): Filter by status.
   * `limit` (default: 50, max: 100).
   * `cursor`: Created-at timestamp for pagination.
 * **Response (200)**:
@@ -301,6 +352,7 @@ Uploads a receipt.
   * The caller owns the expense.
   * `contentType` must be an image type or `application/pdf`.
   * At most 5 MB.
+* **From the client**: a photo is downscaled to 1600 pixels and encoded as a JPEG *in the browser* before it is sent, so a 10 MB phone photo becomes a few hundred kilobytes. A receipt can also be captured with the device camera or the in-app scanner. The bytes the server receives are the bytes it stores.
 * **Response (201)**: `{ "bill": { ... } }` with the SHA-256 of the bytes.
 
 ### `GET /api/v1/bills/:id/content`
@@ -342,24 +394,118 @@ Records the settlement and closes the trip.
 ## 8. Reporting
 
 ### `GET /api/v1/dashboard`
-Trip budgets, approvals outstanding, spend, pending settlements and employee-wise totals — scoped to what the caller may see (their reporting tree, or the company for Finance and Admin).
+Trip budgets, approvals outstanding, spend, pending settlements and employee-wise totals — scoped to what the caller may see (their own travel, their reporting tree, or the company for Finance and Admin). This is the landing screen for everybody after signing in.
+* **Query**: `scope` (`own` | `team` | `all` | `finance`) — optional; the guard resolves the widest scope the caller holds. `display` (a 3-letter currency code) — optional; the currency the money is *shown* in.
 * **Response (200)**:
   ```json
   {
     "scope": "all",
-    "totals": { "trips": 5, "awaiting_approval": 1, "spent_base": "330502.50", "funds_base": "333000.00" },
+    "display": {
+      "currency": "USD",
+      "baseCurrency": "INR",
+      "rate": "0.01201201",
+      "effectiveOn": "2026-11-01",
+      "known": true
+    },
+    "totals": {
+      "trips": 5, "awaiting_approval": 1,
+      "spent_base": "330502.50", "spent_display": "3970.00",
+      "funds_base": "333000.00", "funds_display": "4000.00"
+    },
     "trips": [ ... ],
     "employees": [ ... ],
     "settlements": [ ... ]
   }
   ```
+* **Rules**:
+  * The `_base` figures are what is stored. The `_display` figures are the same money shown in the requested currency, at the remembered rate — the stored amounts are never changed by a conversion.
+  * A currency with no remembered rate produces no number: `display.known` is `false`, the `_display` figures are `null`, and the base figures are still there. A converted figure nobody can account for is worse than no figure.
 
 ### `GET /api/v1/reports/export.csv?kind=employees|trips`
 The report as CSV — RFC 4180 quoting, so it opens in Excel and Numbers without a converter.
+* **Query**: `kind` (`employees` | `trips`), `scope`, and `display` — a currency code. The base columns are always present; the display columns are added only when a currency other than the base was asked for.
 
 ---
 
-## 9. Administration Endpoints
+## 9. Currencies & Rates
+
+### `GET /api/v1/currencies`
+The currency registry, and the company's base currency. Open to any signed-in user — a currency is not a secret, and the pickers need the list to draw one.
+* **Response (200)**:
+  ```json
+  {
+    "currencies": [
+      { "code": "INR", "name": "Indian Rupee", "symbol": "₹", "minor_units": 2 }
+    ],
+    "baseCurrency": "INR"
+  }
+  ```
+
+### `GET /api/v1/exchange-rates`
+The rates the company has remembered, newest first.
+
+### `GET /api/v1/exchange-rates/:code`
+The latest remembered rate for one currency against the base, in both directions.
+* **Response (200)**:
+  ```json
+  {
+    "currency": "USD",
+    "baseCurrency": "INR",
+    "rateToBase": "83.25000000",
+    "rateToBaseEffectiveOn": "2026-11-01",
+    "rateFromBase": "0.01201201",
+    "rateFromBaseEffectiveOn": "2026-11-01"
+  }
+  ```
+* **Rules**: `rateToBase` is what a trip stores — how many base units one unit of this currency buys. `rateFromBase` is the inverse — how many of this currency one base unit buys. A currency with no remembered rate returns `null` for both.
+
+### `POST /api/v1/exchange-rates`
+Records a rate. Finance and Admin only (`rate.manage`).
+* **Payload**: `{ "fromCode": "USD", "toCode": "INR", "rate": "83.25000000", "effectiveOn": "2026-11-01", "note": null }`
+* **Rules**:
+  * The rate is how many units of `toCode` one unit of `fromCode` buys. It must be positive, with at most eight decimal places, and small enough to fit `NUMERIC(20,8)` — twelve integer digits. Anything else is a `422`, never a `500`.
+  * `effectiveOn` is a calendar date written `YYYY-MM-DD`. It defaults to today. An unparseable date is a `422`.
+  * One row per pair per day: re-recording today's rate updates it in place; last week's row is untouched.
+  * Recording a rate changes no booked money. It is a default to offer on a trip's currency plan.
+  * The rate and its audit event are written **in the same transaction**. A rate that exists with no audit trail is an unauditable write.
+
+### `POST /api/v1/exchange-rates/sync`
+Synchronizes live official reference exchange rates directly from the European Central Bank (via public Frankfurter open API) for all active currencies against base currency (INR), including pegged GCC currencies (AED, SAR, QAR, OMR, BHD, KWD). Finance and Admin only (`rate.manage`).
+* **Payload**: `{}` (optional note)
+* **Response (200)**:
+  ```json
+  {
+    "syncedCount": 35,
+    "effectiveOn": "2026-11-13",
+    "baseCurrency": "INR",
+    "rates": [ ... ]
+  }
+  ```
+* **Rules**:
+  * Free, open-source European Central Bank feed requiring no proprietary API keys.
+  * Calculates exact 8-decimal conversion rates using BigInt minor-unit arithmetic.
+  * Records an atomic `rate.record` audit event in the same transaction.
+
+---
+
+## 10. The Manual
+
+### `GET /api/v1/permissions/matrix`
+The permission matrix, role by role. The in-app manual draws its "who can do what" table from this, so the table is the real matrix rather than a copy somebody has to remember to update.
+* **Response (200)**:
+  ```json
+  {
+    "roles": [
+      { "code": "employee", "name": "Traveller", "permissions": ["trip.create", "..."] }
+    ],
+    "permissions": ["advance.manage", "..."]
+  }
+  ```
+* **Rules**: open to any signed-in user. Permission names are not a secret — the interface already shows each person which screens they have — and nothing here grants anything.
+
+---
+
+## 11. Administration Endpoints
 
 ### `GET /api/v1/employees`
 Lists employees with optional filters (`departmentId`, `status`, `search`).
@@ -373,8 +519,26 @@ Updates employee profile fields (name, location, designation, managerId, grade).
 ### `PATCH /api/v1/employees/:id/roles`
 Assigns roles (`roles: ['employee', 'manager', 'admin', ...]`). Self-assignment is prohibited.
 
+### `PATCH /api/v1/employees/:id/status`
+Deactivates or reactivates an employee (`{ "status": "active" | "inactive" }`). Deactivating an employee revokes their active sessions and invalidates reporting routes.
+
+### `POST /api/v1/employees/:id/invite`
+Issues a one-time password invitation link and sends it to the employee's work email.
+
+### `POST /api/v1/employees/import`
+Bulk imports employee rows in tab-separated or comma-separated format. Supports dry run verification (`{ "text": "...", "dryRun": true }`).
+
 ### `GET /api/v1/departments`
 Lists all active departments and their child cost centers.
+
+### `POST /api/v1/departments`
+Creates a department (`{ "code": "MKT", "name": "Marketing", "headId": "emp_..." }`).
+
+### `PATCH /api/v1/departments/:id`
+Updates department details (`code`, `name`, `headId`).
+
+### `GET /api/v1/cost-centers`
+Lists active cost centers with their associated departments.
 
 ### `GET /api/v1/audit`
 Returns the append-only audit trail with actor details and state transitions. Restricted to users with `audit.read` (Admin).

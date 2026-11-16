@@ -20,7 +20,7 @@ if (!url) {
 
 const client = new pg.Client({
   connectionString: url,
-  ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: false },
+  ssl: process.env.DATABASE_SSL_MODE === 'disable' ? false : { rejectUnauthorized: process.env.APP_ENV === 'prod' || process.env.APP_ENV === 'production' },
 });
 
 async function ensureTable() {

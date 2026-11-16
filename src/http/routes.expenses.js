@@ -1,6 +1,7 @@
 /* HTTP route handlers for Expenses. */
 
 import { authorize, rejectServerDerived } from '../authz/guard.js';
+import { parseQueryLimit, parseQueryStatus, parseQueryCursor } from './validation.js';
 import {
   listExpenses, readExpense, createExpense, updateExpense,
   deleteExpense as removeExpense, submitExpense, decideExpense,
@@ -10,6 +11,15 @@ const notFound = { status: 404, body: { error: { code: 'not_found', message: 'No
 
 /* GET /api/v1/expenses */
 export async function getExpenses(ctx) {
+  const limitVal = parseQueryLimit(ctx.query);
+  if (limitVal.error) return limitVal.error;
+
+  const statusVal = parseQueryStatus(ctx.query, 'expense_status');
+  if (statusVal.error) return statusVal.error;
+
+  const cursorVal = parseQueryCursor(ctx.query);
+  if (cursorVal.error) return cursorVal.error;
+
   const requested = ctx.query.get('scope') ?? undefined;
 
   const { scope, team } = await authorize(
@@ -21,9 +31,9 @@ export async function getExpenses(ctx) {
     team,
     employeeId: ctx.principal.employeeId,
     tripId: ctx.query.get('tripId') ?? undefined,
-    status: ctx.query.get('status') ?? undefined,
-    limit: Number(ctx.query.get('limit')) || 50,
-    cursor: ctx.query.get('cursor') ?? undefined,
+    status: statusVal.status,
+    limit: limitVal.limit,
+    cursor: cursorVal.cursor,
   });
 
   return { status: 200, body: result };

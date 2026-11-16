@@ -79,9 +79,15 @@ export async function patchMe(ctx) {
   rejectServerDerived(ctx.body, []);
   assertOnlyFields('me.update', ctx.body ?? {});
 
+  if (!ctx.body || !('mobile' in ctx.body)) {
+    return { status: 422, body: { error: { code: 'validation_failed', message: 'No editable fields provided.' } } };
+  }
+
+  const mobileVal = ctx.body.mobile === null ? null : String(ctx.body.mobile).trim() || null;
+
   const row = await tx(async (db) => {
     const updated = await db.one('UPDATE employee SET mobile = $2 WHERE id = $1 RETURNING id, mobile',
-      [ctx.principal.employeeId, ctx.body?.mobile ?? null]);
+      [ctx.principal.employeeId, mobileVal]);
     await audit(db, {
       actorId: ctx.principal.employeeId,
       actorLabel: ctx.principal.name,

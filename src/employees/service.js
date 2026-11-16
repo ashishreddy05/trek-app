@@ -8,7 +8,7 @@ import { randomInt } from 'node:crypto';
 import { tx } from '../db.js';
 import { audit, ACTIONS } from '../audit.js';
 import { validateEmployee, resolveCostCenter } from './validate.js';
-import { revokeAllForEmployee } from '../auth/session.js';
+import { revokeAllForEmployee, invalidatePrincipalCache } from '../auth/session.js';
 import { hashPassword } from '../auth/password-hash.js';
 import { passwordProblem } from '../auth/password-policy.js';
 import { ValidationError } from './validate.js';
@@ -169,6 +169,7 @@ export async function createEmployee({ input, actor, requestId, ip }) {
       actorIp: ip,
     });
 
+    if (input.managerId) invalidatePrincipalCache(input.managerId);
     return readEmployee(db, id);
   });
 }
@@ -225,6 +226,12 @@ export async function updateEmployee({ id, input, actor, requestId, ip }) {
 
     if (sets.length) {
       await db.query(`UPDATE employee SET ${sets.join(', ')} WHERE id = $1`, params);
+
+      invalidatePrincipalCache(id);
+      if (changed.includes('managerId')) {
+        if (before.manager_id) invalidatePrincipalCache(before.manager_id);
+        if (merged.managerId) invalidatePrincipalCache(merged.managerId);
+      }
 
       await audit(db, {
         actorId: actor.employeeId,
@@ -284,6 +291,7 @@ export async function updateRoles({ id, roles, actor, requestId, ip }) {
     }, id);
 
     await db.query('UPDATE employee SET roles = $2 WHERE id = $1', [id, roles]);
+    invalidatePrincipalCache(id);
 
     await audit(db, {
       actorId: actor.employeeId,
@@ -345,6 +353,9 @@ export async function setStatus({ id, status, reason, actor, requestId, ip }) {
       requestId,
       actorIp: ip,
     });
+
+    invalidatePrincipalCache(id);
+    if (before.manager_id) invalidatePrincipalCache(before.manager_id);
 
     return readEmployee(db, id);
   });

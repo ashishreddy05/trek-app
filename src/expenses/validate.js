@@ -9,19 +9,14 @@ import { normaliseAmount, normaliseCurrency, MoneyError } from '../money.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+import { BUDGET_CATEGORIES, ValidationError, WorkflowError } from '../trips/validate.js';
+
 /* One vocabulary, shared with trip_budget_line.category. */
-export const EXPENSE_CATEGORIES = [
-  'travel',
-  'accommodation',
-  'food',
-  'visa',
-  'sim_card',
-  'other',
-];
+export const EXPENSE_CATEGORIES = BUDGET_CATEGORIES;
 
 export const PAYMENT_METHODS = ['cash', 'forex_card', 'card', 'bank_transfer'];
 
-export { ValidationError, WorkflowError } from '../trips/validate.js';
+export { ValidationError, WorkflowError };
 
 function isValidDate(dateStr) {
   if (!DATE_RE.test(dateStr)) return false;

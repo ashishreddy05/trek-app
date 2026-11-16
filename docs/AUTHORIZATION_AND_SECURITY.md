@@ -48,35 +48,48 @@ So the matrix carries two permissions per authority:
 ### 2.3 Permissions by Role Table
 | Permission | Description | `employee` | `manager` | `hr_travel` | `finance` | `admin` |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| `trip.create` | Create & update draft trips | ✅ | | | | ✅ |
-| `trip.read.own` | View own trips | ✅ | | | | ✅ |
-| `trip.read.team` | View direct & indirect reports' trips | | ✅ | | | ✅ |
+| `trip.create` | Create & update draft trips | ✅ | | | | |
+| `trip.read.own` | View own trips | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `trip.read.team` | View direct & indirect reports' trips | | ✅ | | | |
 | `trip.read.all` | View all company trips | | | ✅ | ✅ | ✅ |
 | `trip.approve` | Decide trips **in the reporting tree** | | ✅ | | | |
 | `trip.approve.all` | Decide any trip company-wide | | | | ✅ | ✅ |
-| `trip.budget.manage` | Add & remove budget lines on own trips | ✅ | | | | ✅ |
-| `trip.fx.manage` | Set the currency plan on own trips | ✅ | | | | ✅ |
+| `trip.budget.manage` | Add & remove budget lines on own trips | ✅ | | | | |
+| `trip.fx.manage` | Set the currency plan on own trips | ✅ | | | | |
 | `trip.fund.manage` | Issue funds against a trip | | | | ✅ | ✅ |
-| `trip.reconcile.submit` | Submit own trip for reconciliation | ✅ | | | | ✅ |
+| `trip.reconcile.submit` | Submit own trip for reconciliation | ✅ | | | | |
 | `trip.reconcile.decide` | Approve or send back a reconciliation | | | | ✅ | ✅ |
 | `trip.settle` | Record settlement & close the trip | | | | ✅ | ✅ |
-| `expense.create`| Create, edit & delete draft expenses | ✅ | | | | ✅ |
-| `expense.read.own`| View own expenses | ✅ | | | | ✅ |
-| `expense.read.team`| View team reports' expenses | | ✅ | | | ✅ |
+| `expense.create`| Create, edit & delete draft expenses | ✅ | | | | |
+| `expense.read.own`| View own expenses | ✅ | | | | |
+| `expense.read.team`| View team reports' expenses | | ✅ | | | |
 | `expense.read.all` | View all company expenses | | | | ✅ | ✅ |
 | `expense.approve` | Decide expenses **in the reporting tree** | | ✅ | | | |
 | `expense.approve.all` | Decide any expense company-wide | | | | ✅ | ✅ |
-| `bill.upload` | Attach a receipt to own expense | ✅ | | | | ✅ |
-| `bill.read.own` | View receipts on own expenses | ✅ | | | ✅ |
+| `expense.review` | Financial audit & expense review | | | | ✅ | |
+| `bill.upload` | Attach a receipt to own expense | ✅ | | | | |
+| `bill.read.own` | View receipts on own expenses | ✅ | | | | |
 | `bill.read.all` | View every receipt | | | | ✅ | ✅ |
+| `rate.manage` | Record company rates & sync live ECB feed | | | | ✅ | ✅ |
 | `employee.manage`| CRUD on employees, bulk import | | | | | ✅ |
 | `department.manage`| Manage departments & heads | | | | | ✅ |
 | `costcenter.manage`| Manage cost centers | | | | | ✅ |
 | `role.manage` | Assign roles to other employees | | | | | ✅ |
+| `policy.manage` | Travel & expense policy governance | | | | | ✅ |
+| `workflow.manage` | Workflow & transition administration | | | | | ✅ |
 | `audit.read` | View the immutable audit log | | | | | ✅ |
-| `report.team` | Team-scoped dashboard and export | | ✅ | | | ✅ |
-| `report.finance` | Company-wide dashboard and export | | | | ✅ | ✅ |
-| `report.all` | Company-wide dashboard and export | | | | | ✅ |
+| `report.team` | Team-scoped dashboard and export | | ✅ | | | |
+| `report.finance` | Company-wide dashboard and export | | | | ✅ | |
+| `report.all` | Executive organization-wide export | | | | | ✅ |
+| `advance.request` | Request travel cash advance | ✅ | | | | |
+| `advance.manage` | Disburse & account for travel advances | | | | ✅ | |
+| `settlement.read.own` | View own trip settlements | ✅ | | | | |
+| `settlement.post` | Post final expense settlements | | | | ✅ | |
+| `booking.manage` | Manage corporate tickets & reservations | | | ✅ | | |
+| `delegate.manage` | Manage manager approval delegations | | ✅ | | | |
+| `document.manage` | Company-wide travel doc administration | | | ✅ | | |
+| `document.read.own` | View own travel documents | ✅ | | | | |
+| `document.write.own` | Upload & manage own travel documents | ✅ | | | | |
 
 ---
 

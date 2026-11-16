@@ -15,6 +15,7 @@ import { audit, ACTIONS } from '../audit.js';
 import { validateExpense } from './validate.js';
 import { WorkflowError } from '../trips/validate.js';
 import { multiplyRate } from '../money.js';
+import { assertCurrencyKnown } from '../currency/service.js';
 
 export async function listExpenses(db, { scope, team, employeeId, tripId, status, limit = 50, cursor } = {}) {
   const where = [];
@@ -29,6 +30,8 @@ export async function listExpenses(db, { scope, team, employeeId, tripId, status
     add('x.employee_id = ANY($?)', ids);
   } else if (scope === 'all' || scope === 'finance') {
     /* Company-wide: no id restriction. */
+  } else {
+    throw new WorkflowError(403, 'forbidden', `Unknown scope "${scope}".`);
   }
 
   if (tripId) add('x.trip_id = $?', tripId);
@@ -52,7 +55,7 @@ export async function listExpenses(db, { scope, team, employeeId, tripId, status
        JOIN trip t     ON t.id = x.trip_id
        LEFT JOIN employee m ON m.id = x.decided_by
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-      ORDER BY x.expense_date DESC, x.created_at DESC, x.id DESC
+      ORDER BY x.created_at DESC, x.id DESC
       LIMIT $${params.length}`,
     params
   );
@@ -117,6 +120,7 @@ export async function createExpense({ input, actor, requestId, ip }) {
   const valid = validateExpense(input, { requireTrip: true });
 
   return tx(async (client) => {
+    await assertCurrencyKnown(client, valid.currency);
     const trip = await client.one('SELECT * FROM trip WHERE id = $1', [valid.tripId]);
     if (!trip || trip.employee_id !== actor.employeeId) {
       throw new WorkflowError(404, 'not_found', 'Trip not found.');
@@ -159,6 +163,9 @@ export async function updateExpense({ id, input, actor, requestId, ip }) {
   const valid = validateExpense(input, { requireTrip: false });
 
   return tx(async (client) => {
+    if (valid.currency) {
+      await assertCurrencyKnown(client, valid.currency);
+    }
     const existing = await client.one('SELECT * FROM expense WHERE id = $1 FOR UPDATE', [id]);
     if (!existing) return null;
 
@@ -242,6 +249,9 @@ export async function submitExpense({ id, actor, requestId, ip }) {
       throw new WorkflowError(409, 'invalid_transition', `Only draft expenses can be submitted; this expense is ${expense.status}.`);
     }
 
+    const trip = await client.one('SELECT * FROM trip WHERE id = $1', [expense.trip_id]);
+    await assertTripAcceptsExpenses(client, trip, 'submitted');
+
     /* Verify the employee has an active eligible manager. */
     const emp = await client.one(
       `SELECT e.manager_id, m.status AS manager_status, m.name AS manager_name
@@ -310,6 +320,9 @@ export async function decideExpense({ id, decision, reason, actor, requestId, ip
     if (expense.status !== 'submitted') {
       throw new WorkflowError(409, 'invalid_transition', `Only submitted expenses can be decided; this expense is ${expense.status}.`);
     }
+
+    const trip = await client.one('SELECT * FROM trip WHERE id = $1', [expense.trip_id]);
+    await assertTripAcceptsExpenses(client, trip, 'decided');
 
     if (expense.employee_id === actor.employeeId) {
       throw new WorkflowError(403, 'forbidden', 'You cannot approve or reject your own expense.');

@@ -6,11 +6,20 @@ import { config } from '../config.js';
 import { log, reportError } from '../logging.js';
 import * as db from '../db.js';
 import { handle } from './app.js';
+import { initEnums } from './validation.js';
+import { purgeExpired } from '../auth/session.js';
 
 const server = http.createServer(handle);
 
 server.listen(config.port, () => {
   log.info('boot', { port: config.port, env: config.env, mailDriver: config.mail.driver });
+  initEnums(db.pool).catch(() => {});
+
+  // Clean expired sessions, login attempts and password reset tokens periodically
+  const purge = () => purgeExpired(db).catch((err) => reportError(err, { source: 'purgeExpired' }));
+  setTimeout(purge, 60_000).unref();
+  const purgeInterval = setInterval(purge, 3600_000);
+  purgeInterval.unref();
 });
 
 for (const sig of ['SIGTERM', 'SIGINT']) {

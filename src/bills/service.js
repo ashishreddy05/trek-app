@@ -29,8 +29,12 @@ const ALLOWED_TYPES = [
 ];
 
 export function validateBill({ filename, contentType, buffer }) {
-  if (!filename || !String(filename).trim()) {
+  const trimmed = String(filename ?? '').trim();
+  if (!trimmed) {
     throw new WorkflowError(422, 'validation_failed', 'A filename is required.');
+  }
+  if (/[\r\n\0-\x1f\x7f]/.test(trimmed)) {
+    throw new WorkflowError(422, 'validation_failed', 'Filename must not contain control characters or line breaks.');
   }
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
     throw new WorkflowError(422, 'validation_failed', 'The file is empty.');
@@ -45,7 +49,7 @@ export function validateBill({ filename, contentType, buffer }) {
       `Bills must be a photo or a PDF. Received "${type || 'unknown'}".`);
   }
   return {
-    filename: String(filename).trim().slice(0, 200),
+    filename: trimmed.slice(0, 200),
     contentType: type,
     buffer,
   };
