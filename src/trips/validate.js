@@ -82,9 +82,43 @@ function moneyOrZero(value, field) {
   }
 }
 
+/* One leg of the itinerary. An empty list means the trip is the direct
+ * origin → destination journey; a round trip is more legs, not a special case.
+ * Legs are validated together so the UI can show one error under the section. */
+export const MAX_LEGS = 20;
+
+export function validateLegs(input) {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) {
+    throw new ValidationError({ legs: 'Itinerary legs must be a list' });
+  }
+  if (input.length > MAX_LEGS) {
+    throw new ValidationError({ legs: `An itinerary can have at most ${MAX_LEGS} legs` });
+  }
+
+  return input.map((leg, i) => {
+    const from = text(leg?.from, {
+      max: 200, required: true,
+      message: `Leg ${i + 1}: departure city is required`, field: 'legs',
+    });
+    const to = text(leg?.to, {
+      max: 200, required: true,
+      message: `Leg ${i + 1}: arrival city is required`, field: 'legs',
+    });
+
+    const date = text(leg?.departDate, { field: 'legs' });
+    if (date && !isValidDate(date)) {
+      throw new ValidationError({ legs: `Leg ${i + 1}: date must be a valid date (YYYY-MM-DD)` });
+    }
+
+    return { from, to, departDate: date || null };
+  });
+}
+
 export function validateTrip(input, defaultCurrency = 'INR') {
   const fields = {};
 
+  const origin = text(input.origin, { max: 200, field: 'origin' });
   const dest = text(input.destination, { max: 200, required: true, message: 'Destination is required', field: 'destination' });
   const purpose = text(input.purpose, { max: 500, required: true, message: 'Purpose is required', field: 'purpose' });
 
@@ -105,9 +139,34 @@ export function validateTrip(input, defaultCurrency = 'INR') {
     fields.currency = err.message;
   }
 
+  let ownFundsBase = '0.00';
+  try {
+    /* An untouched input posts an empty string; no money is not an error. */
+    ownFundsBase = moneyOrZero(input.ownFundsBase === '' ? '0' : (input.ownFundsBase ?? '0'), 'ownFundsBase');
+  } catch (err) {
+    fields.ownFundsBase = err.fields.ownFundsBase;
+  }
+
+  let legs = [];
+  try {
+    legs = validateLegs(input.legs);
+  } catch (err) {
+    if (err instanceof ValidationError) Object.assign(fields, err.fields);
+    else throw err;
+  }
+
   if (Object.keys(fields).length > 0) throw new ValidationError(fields);
 
-  return { destination: dest, purpose, startDate: start, endDate: end, currency };
+  return {
+    origin: origin || null,
+    destination: dest,
+    purpose,
+    startDate: start,
+    endDate: end,
+    currency,
+    ownFundsBase,
+    legs,
+  };
 }
 
 /** One estimated-expense line on the trip budget. */

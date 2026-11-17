@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
+  "regions": ["sin1"],
   "outputDirectory": "public",
   "functions": {
     "api/[...path].js": { "maxDuration": 15, "memory": 1024 }

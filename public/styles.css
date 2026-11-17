@@ -924,6 +924,25 @@ tbody tr.clickable:hover { background: var(--layer-hover); }
 }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--carbon-05); }
 
+/* ============================================================ trip form page */
+
+.form-page { max-width: 880px; }
+.form-page-actions {
+  position: sticky; bottom: 0; z-index: 1;
+  display: flex; justify-content: flex-end; gap: 10px;
+  padding: var(--carbon-04) 0;
+  background: var(--background);
+  border-top: 1px solid var(--border-subtle-01);
+}
+.leg-row {
+  display: grid; grid-template-columns: 1fr 1fr 200px auto;
+  gap: var(--carbon-04); align-items: end;
+  padding: var(--carbon-04) 0;
+  border-bottom: 1px solid var(--border-subtle-01);
+}
+.leg-row .field { margin-bottom: 0; }
+.leg-row:last-child { border-bottom: none; }
+
 .chips { display: flex; flex-wrap: wrap; gap: var(--carbon-03); }
 .chip {
   padding: 6px 12px;
@@ -1028,6 +1047,7 @@ tbody tr.clickable:hover { background: var(--layer-hover); }
 
   .main { padding: var(--carbon-05) var(--carbon-04) var(--carbon-07); }
   .grid-2 { grid-template-columns: 1fr; }
+  .leg-row { grid-template-columns: 1fr; }
   .kv { grid-template-columns: 1fr; }
   .kv > dt { padding-bottom: 0; border-bottom: none; }
   table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }

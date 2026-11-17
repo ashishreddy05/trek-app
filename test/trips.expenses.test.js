@@ -54,11 +54,18 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
   test('employee can create a draft trip', async () => {
     const trip = await createTrip({
       input: {
+        origin: 'Bengaluru, India',
         destination: 'Dubai, UAE',
         purpose: 'Quarterly client onboarding meetings',
         startDate: '2026-12-01',
         endDate: '2026-12-05',
         currency: 'AED',
+        ownFundsBase: '10000.00',
+        legs: [
+          { from: 'Bengaluru, India', to: 'Dubai, UAE', departDate: '2026-12-01' },
+          { from: 'Dubai, UAE', to: 'Abu Dhabi, UAE', departDate: '2026-12-03' },
+          { from: 'Abu Dhabi, UAE', to: 'Bengaluru, India', departDate: '2026-12-05' },
+        ],
       },
       actor: pTravellerOne,
       requestId: 'req_1',
@@ -67,10 +74,23 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
 
     assert.ok(trip.id);
     assert.equal(trip.employee_id, TRAVELLER_ONE);
+    assert.equal(trip.origin, 'Bengaluru, India');
     assert.equal(trip.destination, 'Dubai, UAE');
     assert.equal(trip.status, 'draft');
     assert.equal(trip.base_currency, 'INR');
+    assert.equal(trip.own_funds_base, '10000.00');
     tripId = trip.id;
+
+    const created = await readTrip(db, trip.id);
+    assert.deepEqual(
+      created.legs.map((l) => [l.seq, l.from_city, l.to_city]),
+      [
+        [1, 'Bengaluru, India', 'Dubai, UAE'],
+        [2, 'Dubai, UAE', 'Abu Dhabi, UAE'],
+        [3, 'Abu Dhabi, UAE', 'Bengaluru, India'],
+      ],
+      'multi-city legs are stored in order'
+    );
 
     const auditRow = await db.one(
       `SELECT action, previous_state, new_state FROM audit_event
@@ -225,11 +245,17 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
     const updated = await updateTrip({
       id: tripId,
       input: {
+        origin: 'Bengaluru, India',
         destination: 'Dubai, UAE',
         purpose: 'Quarterly client onboarding meetings and two site visits',
         startDate: '2026-12-01',
         endDate: '2026-12-06',
         currency: 'AED',
+        ownFundsBase: '10000.00',
+        legs: [
+          { from: 'Bengaluru, India', to: 'Dubai, UAE', departDate: '2026-12-01' },
+          { from: 'Dubai, UAE', to: 'Bengaluru, India', departDate: '2026-12-06' },
+        ],
       },
       actor: pTravellerOne,
       requestId: 'req_4',
@@ -238,9 +264,14 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
 
     assert.equal(updated.purpose, 'Quarterly client onboarding meetings and two site visits');
     assert.equal(updated.end_date, '2026-12-06');
+    assert.equal(updated.own_funds_base, '10000.00', 'own funds survive an edit');
+
+    const detail = await readTrip(db, tripId);
+    assert.equal(detail.legs.length, 2, 'the submitted itinerary replaces the old set');
+    assert.equal(detail.legs[1].to_city, 'Bengaluru, India', 'the return leg is kept');
   });
 
-  test('expenses cannot be recorded against a trip that is not yet approved and funded', async () => {
+  test('expenses cannot be recorded against a trip that is not yet approved', async () => {
     await assert.rejects(
       () => createExpense({
         input: {
@@ -265,6 +296,8 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
 
     assert.equal(submitted.status, 'submitted');
     assert.ok(submitted.submitted_at);
+    assert.equal(submitted.requested_funds_base, '156500.00',
+      'the request is the budget minus the 10000.00 the traveller already has');
 
     const auditRow = await db.one(
       `SELECT action, new_state FROM audit_event
@@ -343,6 +376,27 @@ describe('Trips & Expenses — End-to-End Workflow', () => {
       [tripId]
     );
     assert.equal(auditRow.new_state, 'approved');
+  });
+
+  test('an approved trip cannot accept expenses before funds are issued', async () => {
+    /* Trip must be active (funds issued) before expenses can be recorded. */
+    await assert.rejects(
+      () => createExpense({
+        input: {
+          tripId,
+          date: '2026-12-02',
+          description: 'Airport taxi paid personally',
+          category: 'travel',
+          amount: '120.00',
+          currency: 'AED',
+          paymentMethod: 'card',
+        },
+        actor: pTravellerOne,
+        requestId: 'req_8a',
+        ip: '127.0.0.1',
+      }),
+      (err) => err.status === 409 && err.code === 'invalid_transition'
+    );
   });
 
   test('funds can only be issued once the budget is approved', async () => {

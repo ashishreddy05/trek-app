@@ -40,8 +40,8 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 * Submissions must fail with `422 Unprocessable Entity` (`code: "no_approval_route"`) if the employee has no active reporting manager.
 
 ### 1.6 Forward-Only Migrations
-* Applied migrations (`migrations/001` through `012`) are **immutable**.
-* Schema modifications must be written as new forward migrations (e.g. `migrations/013_...`).
+* Applied migrations (`migrations/001` through `013`) are **immutable**.
+* Schema modifications must be written as new forward migrations (e.g. `migrations/014_...`).
 * Never run integration tests on the production/staging Neon database. Test databases must end in `_test`.
 
 ### 1.7 Zero-Framework Philosophy
@@ -51,7 +51,7 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 ### 1.8 The Workflow Is Enforced Server-Side
 * The state machine lives in **one table** in `src/trips/service.js`, not spread across routes: `draft → submitted → approved → active → reconciliation_pending → reconciled → closed`, with `changes_requested` and `rejected` branches.
 * An out-of-order transition is refused with `409 invalid_transition` no matter what the client offers.
-* Money may only be recorded against an `active` trip, and a reconciliation may only be computed when nothing is still awaiting approval.
+* Money may be recorded against an `approved` or `active` trip — funds need not be issued first — and a reconciliation may only be computed when nothing is still awaiting approval.
 
 ### 1.9 The Frontend Is Not Allowed to Go Stale
 * `public/app.js` and `public/styles.css` are **not fingerprinted**, so they are served `no-cache, must-revalidate`. A cached script outlives the deploy that replaced it and runs against a newer API.
@@ -130,7 +130,7 @@ This file provides non-negotiable architectural rules, domain patterns, and oper
 │   ├── API_REFERENCE.md      # REST endpoint reference & error dictionaries
 │   ├── AUTHORIZATION_AND_SECURITY.md # Permission matrix & scoping rules
 │   └── DEVELOPMENT_AND_TESTING.md    # Local setup and test guides
-├── migrations/               # Sequential forward-only SQL migrations (001 - 012)
+├── migrations/               # Sequential forward-only SQL migrations (001 - 013)
 ├── public/                   # Vanilla frontend client (no build step)
 │   ├── app.js                # Single-page UI application logic & views
 │   ├── manual.js             # The in-app manual (workflow, capabilities, screens, messages)
@@ -224,7 +224,7 @@ return tx(async (client) => {
 ```
 
 ### 3.3 Adding a Migration
-1. Name next sequential file (e.g. `migrations/013_feature_name.sql`).
+1. Name next sequential file (e.g. `migrations/014_feature_name.sql`).
 2. Write idempotent SQL.
 3. Apply locally: `npm run migrate`.
 4. Check status: `npm run migrate:status`.

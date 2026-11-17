@@ -148,7 +148,7 @@ Without this, `GET /api/v1/trips` returned `403` for every employee and manager,
 * All meaningful events (`trip.submit`, `trip.approve`, `trip.reject`, `trip.request_changes`, `trip.fund.issue`, `trip.reconcile.submit`, `trip.reconcile.approve`, `trip.settle`, `expense.submit`, `expense.approve`, `expense.reject`, `bill.upload`, `employee.create`, `role.assign`) must execute `audit()` inside the transaction modifying the entity.
 
 ### 4.5 Money cannot be claimed against an unapproved trip
-* An expense may only be created against a trip in `active` — approved and funded.
+* An expense may be created against a trip once it is `approved` or `active`. Funds do not have to be issued first: own-funded spend is reimbursed at reconciliation.
 * A reconciliation may only be computed when no expense is still awaiting approval, because money in flight would make the balance wrong.
 * The workflow's state machine is enforced in the service layer, not in the UI: the API refuses an out-of-order transition with `409 invalid_transition` regardless of what the client offers.
 

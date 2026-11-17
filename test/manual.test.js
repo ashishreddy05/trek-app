@@ -118,7 +118,7 @@ describe('the manual is true', () => {
      * wording, the manual must change with it. */
     const quoted = [
       'No exchange rate is set for',
-      'Expenses can only be recorded once the trip is approved and funded',
+      'Expenses can only be recorded once the trip is approved',
       'You do not have an active reporting manager assigned',
       'still awaiting approval',
       'Only a draft trip can be edited',

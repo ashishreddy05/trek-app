@@ -14,6 +14,7 @@ erDiagram
     ACCOUNT ||--o{ SESSION : "issues"
     ACCOUNT ||--o{ ACCOUNT_IDENTITY : "links"
     EMPLOYEE ||--o{ TRIP : "submits"
+    TRIP ||--o{ TRIP_LEG : "itinerary"
     TRIP ||--o{ EXPENSE : "contains"
     EMPLOYEE ||--o{ EXPENSE : "incurs"
     EMPLOYEE ||--o{ AUDIT_EVENT : "actors"
@@ -21,6 +22,7 @@ erDiagram
     TRIP {
         text id PK "trp_[hex]"
         text employee_id FK
+        text origin "departure city; never assumed"
         text destination
         text purpose
         date start_date
@@ -29,10 +31,21 @@ erDiagram
         char base_currency "reporting currency (INR)"
         trip_status status "see below"
         numeric approved_budget_base "frozen at approval"
+        numeric own_funds_base "traveller's own money (base)"
+        numeric requested_funds_base "frozen at submit: max(0, budget - own funds)"
         timestamptz submitted_at
         timestamptz decided_at
         text decided_by FK
         text rejection_reason
+    }
+
+    TRIP_LEG {
+        text id PK "tlg_[hex]"
+        text trip_id FK
+        integer seq "1-based order"
+        text from_city
+        text to_city
+        date depart_date
     }
 
     EXPENSE {
@@ -223,6 +236,7 @@ Represents an employee's business travel request and its budget.
 * `id` (`text`, Primary Key, Default `'trp_' || encode(gen_random_bytes(8), 'hex')`)
 * `company_id` (`text`, Foreign Key &rarr; `company(id)`)
 * `employee_id` (`text`, NOT NULL, Foreign Key &rarr; `employee(id)`)
+* `origin` (`text`, Nullable) — the departure city. Deliberately nullable and never defaulted by the server: an assumed origin produces a flight search to the wrong airport.
 * `destination` (`text`, NOT NULL)
 * `purpose` (`text`, NOT NULL)
 * `start_date` (`date`, NOT NULL)
@@ -231,6 +245,8 @@ Represents an employee's business travel request and its budget.
 * `base_currency` (`char(3)`, NOT NULL, Default `'INR'`, the reporting currency)
 * `status` (`trip_status`: `'draft' | 'submitted' | 'changes_requested' | 'approved' | 'rejected' | 'active' | 'reconciliation_pending' | 'reconciled' | 'closed'`)
 * `approved_budget_base` (`numeric(14,2)`, Nullable) — the budget frozen at approval, so reconciliation compares against what was approved
+* `own_funds_base` (`numeric(14,2)`, NOT NULL, Default `0`) — money the traveller already has for this trip, in the company base currency
+* `requested_funds_base` (`numeric(14,2)`, Nullable) — the amount the company is asked to fund, frozen at submission as `max(0, budget total - own_funds_base)`
 * `submitted_at` (`timestamptz`)
 * `decided_at` (`timestamptz`)
 * `decided_by` (`text`, Foreign Key &rarr; `employee(id)`)
@@ -239,9 +255,28 @@ Represents an employee's business travel request and its budget.
 * `updated_at` (`timestamptz`, Default `now()`)
 * **Constraints**:
   * `CHECK (end_date >= start_date)`
+  * `CHECK (own_funds_base >= 0)`
 * **Indexes**:
   * `(employee_id, created_at DESC)`
   * `(status)`
+
+An expense may be recorded while the trip is `approved` or `active`; funds do not have to be issued first. Own-funded spend is reimbursed at reconciliation.
+
+#### `trip_leg`
+One ordered leg of the itinerary. Legs are replaced as a set — they have no independent identity a user edits one at a time. An empty set is the direct origin → destination journey; a round trip is simply more legs (A→B→C→D→B→A).
+* `id` (`text`, Primary Key, Default `'tlg_' || encode(gen_random_bytes(8), 'hex')`)
+* `trip_id` (`text`, NOT NULL, Foreign Key &rarr; `trip(id)` ON DELETE CASCADE)
+* `seq` (`integer`, NOT NULL) — 1-based order in the itinerary
+* `from_city` (`text`, NOT NULL)
+* `to_city` (`text`, NOT NULL)
+* `depart_date` (`date`, Nullable)
+* `created_at` (`timestamptz`, Default `now()`)
+* `updated_at` (`timestamptz`, Default `now()`)
+* **Constraints**:
+  * `CHECK (seq > 0)`
+  * `UNIQUE (trip_id, seq)`
+* **Indexes**:
+  * `trip_leg_trip_idx` on `(trip_id, seq)`
 
 #### `trip_budget_line`
 One estimated expense on a trip's budget. The category vocabulary is the SAME as `expense.category`, so budget-versus-actual compares like with like.
@@ -383,6 +418,7 @@ Migrations are forward-only, sequentially numbered SQL scripts located in `migra
 10. `010_currency_registry.sql`: The currency registry and the rates the company remembers. One `currency` list serves both currency pickers, so they cannot drift apart; `exchange_rate` holds one rate per pair per day. It also corrects `company.base_currency` to `INR` — the currency every stored amount is already in — so the setting agrees with the code that reads it.
 11. `011_global_currencies_and_rates.sql`: Expands the currency registry to all major global travel destinations (52 currencies total) and seeds standard initial market rates against INR.
 12. `012_currency_constraints_and_indexes.sql`: Sets default `company.base_currency` to `INR`, enforces foreign keys from all currency columns to `currency(code)`, and adds an index on `expense_bill(trip_id)`.
+13. `013_trip_itinerary_and_funding.sql`: Adds `trip.origin`, `trip.own_funds_base` and `trip.requested_funds_base`, and the ordered `trip_leg` itinerary table with its `(trip_id, seq)` index. Backfills the requested amount for trips that already had an approved budget.
 
 ### 3.2 The currency registry
 

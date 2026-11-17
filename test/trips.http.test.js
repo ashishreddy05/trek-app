@@ -86,20 +86,43 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
 
   test('POST /api/v1/trips creates a draft trip', async () => {
     const res = await fetch(`${baseUrl}/api/v1/trips`, json(travellerOneCookie, {
+      origin: 'Bengaluru, India',
       destination: 'Doha & Lusail, Qatar',
       purpose: 'GCC Partnership summit and keynote',
       startDate: '2026-12-10',
       endDate: '2026-12-15',
       currency: 'AED',
+      ownFundsBase: '5000.00',
+      legs: [
+        { from: 'Bengaluru, India', to: 'Doha & Lusail, Qatar', departDate: '2026-12-10' },
+        { from: 'Doha & Lusail, Qatar', to: 'Bengaluru, India', departDate: '2026-12-15' },
+      ],
     }));
 
     assert.equal(res.status, 201);
     const body = await res.json();
     assert.ok(body.trip?.id);
+    assert.equal(body.trip.origin, 'Bengaluru, India');
     assert.equal(body.trip.destination, 'Doha & Lusail, Qatar');
     assert.equal(body.trip.status, 'draft');
     assert.equal(body.trip.base_currency, 'INR');
+    assert.equal(body.trip.own_funds_base, '5000.00');
     tripId = body.trip.id;
+  });
+
+  test('GET /api/v1/trips/:id returns the itinerary in order', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/trips/${tripId}`, {
+      headers: { cookie: travellerOneCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(
+      body.trip.legs.map((l) => [l.seq, l.from_city, l.to_city]),
+      [
+        [1, 'Bengaluru, India', 'Doha & Lusail, Qatar'],
+        [2, 'Doha & Lusail, Qatar', 'Bengaluru, India'],
+      ]
+    );
   });
 
   test('PATCH /api/v1/trips/:id edits a draft trip', async () => {
@@ -163,7 +186,7 @@ describe('HTTP API End-to-End: the pilot workflow', () => {
     assert.match(body.error.message, /exchange rate/i);
   });
 
-  test('an expense cannot be recorded before the trip is approved and funded', async () => {
+  test('an expense cannot be recorded before the trip is approved', async () => {
     const res = await fetch(`${baseUrl}/api/v1/expenses`, json(travellerOneCookie, {
       tripId,
       date: '2026-12-11',

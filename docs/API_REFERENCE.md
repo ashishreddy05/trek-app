@@ -172,18 +172,28 @@ Creates a new draft trip.
 * **Payload**:
   ```json
   {
+    "origin": "Bengaluru, India",
     "destination": "Tokyo",
     "purpose": "Client Q4 Roadmap Review",
     "startDate": "2026-12-10",
-    "endDate": "2026-12-15"
+    "endDate": "2026-12-15",
+    "ownFundsBase": "25000.00",
+    "legs": [
+      { "from": "Bengaluru, India", "to": "Tokyo", "departDate": "2026-12-10" },
+      { "from": "Tokyo", "to": "Osaka", "departDate": "2026-12-13" },
+      { "from": "Osaka", "to": "Bengaluru, India", "departDate": "2026-12-15" }
+    ]
   }
   ```
 * **Validation**:
-  * `destination`: Non-empty, max 100 chars.
-  * `purpose`: Non-empty, max 300 chars.
+  * `origin`: Optional departure city, max 200 chars. The server never supplies one — an assumed origin produces a flight search to the wrong airport.
+  * `destination`: Non-empty, max 200 chars.
+  * `purpose`: Non-empty, max 500 chars.
   * `startDate` & `endDate`: Valid `YYYY-MM-DD` format.
   * `endDate >= startDate`.
-* **Response (201)**: `{ "trip": { ... } }`
+  * `ownFundsBase`: Optional non-negative exact decimal string, default `"0.00"` — money the traveller already has for this trip, in the company base currency.
+  * `legs`: Optional ordered itinerary, at most 20 legs. Each leg needs `from` and `to` (non-empty, max 200 chars); `departDate` is optional and must be `YYYY-MM-DD`. An empty list means the direct origin → destination journey.
+* **Response (201)**: `{ "trip": { ... } }` — the trip row; read `GET /api/v1/trips/:id` for the `legs`.
 
 ### `GET /api/v1/trips/:id`
 Retrieves a single trip and its attached itemized expenses.
@@ -192,22 +202,33 @@ Retrieves a single trip and its attached itemized expenses.
   {
     "trip": {
       "id": "trp_...",
+      "origin": "Bengaluru, India",
       "destination": "Tokyo",
       "status": "submitted",
+      "own_funds_base": "25000.00",
+      "requested_funds_base": "141500.00",
+      "legs": [
+        { "id": "tlg_...", "seq": 1, "from_city": "Bengaluru, India", "to_city": "Tokyo", "depart_date": "2026-12-10" },
+        { "id": "tlg_...", "seq": 2, "from_city": "Tokyo", "to_city": "Bengaluru, India", "depart_date": "2026-12-15" }
+      ],
       "expenses": [ ... ]
     }
   }
   ```
+  `legs` is the itinerary in `seq` order. `requested_funds_base` is what the company was asked to fund, frozen at submission as `max(0, budget total − own_funds_base)`; it is `null` before submission. The `totals` block repeats `ownFundsBase`, `requestedBase` and `fundsRemainingBase` for the funding summary.
 * **Security**: If the caller has no scope to view this trip, returns `404 Not Found`.
 
 ### `PATCH /api/v1/trips/:id`
-Updates destination, purpose, or dates on a **draft** trip.
+Updates a **draft** trip: `origin`, `destination`, `purpose`, dates, `ownFundsBase`, and `legs`.
+* **Payload**: the same fields as create. `origin` and `ownFundsBase` are only replaced when sent, so a PATCH that edits the purpose leaves them untouched. Omitting `legs` keeps the existing itinerary; sending the array replaces it as a set.
+* **Response (200)**: `{ "trip": { ... } }` — the trip row; read the trip for `legs`.
 * **Security & State**: Returns `409 Conflict` if the trip is not in `draft` status.
 
 ### `POST /api/v1/trips/:id/submit`
 Submits a draft trip for management approval.
 * **Rules**:
   * Verifies employee has an active manager in the organization. If none exists, refuses with `422 Unprocessable Entity` (`code: "no_approval_route"`).
+  * Freezes `requested_funds_base` as `max(0, budget total − own_funds_base)` — what the company is being asked to fund.
   * Transitions status: `draft` &rarr; `submitted`.
   * Writes atomic `TRIP_SUBMIT` audit event.
 
@@ -253,7 +274,7 @@ Attaches an expense entry to an employee's own trip.
   * `amount`: Exact positive decimal string with up to 2 decimal places.
   * `currency`: 3-letter uppercase ISO currency code. The trip must have a currency plan entry for it.
   * `paymentMethod`: One of `cash`, `forex_card`, `card`, `bank_transfer`. Defaults to `cash`.
-  * Caller must own the referenced trip, and the trip must be `active` — money cannot be claimed against a trip nobody approved and funded.
+  * Caller must own the referenced trip, and the trip must be `approved` or `active` — funds do not have to be issued first. Own-funded spend is reimbursed at reconciliation.
 * **Response (201)**: `{ "expense": { ... } }`, including `base_amount` and `rate_to_base`.
 
 ### `PATCH /api/v1/expenses/:id`
@@ -328,7 +349,7 @@ Records funds handed over — cash, a forex card, or an additional tranche.
 * **Rules**:
   * Finance or Admin only. A manager cannot issue funds.
   * The trip must be `approved` or `active`.
-  * The FIRST allocation moves the trip to `active`, which is when expenses may be recorded.
+  * The FIRST allocation moves the trip to `active`. Expenses may already be recorded while the trip is `approved`; issuing funds is not their precondition.
 * **Response (201)**: `{ "fund": { ... } }`
 
 ---

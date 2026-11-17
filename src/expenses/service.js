@@ -1,8 +1,9 @@
 /* Expenses service.
  *
- * An expense may only exist against a trip the company has approved and funded
- * (`active`). A claim against a draft or rejected trip is a request for money
- * nobody agreed to spend.
+ * An expense may only exist against a trip the company has approved
+ * (`approved` or `active`). A claim against a draft or rejected trip is a
+ * request for money nobody agreed to spend. Funds do not have to be issued
+ * first: a traveller may spend their own money and be reimbursed.
  *
  * Money: amount is the exact transaction amount in the currency actually spent;
  * base_amount is the snapshot of that amount converted at the rate the trip's
@@ -108,7 +109,7 @@ async function rateFor(client, tripId, currency) {
     `No exchange rate is set for ${currency} on this trip. Add it to the currency plan first.`);
 }
 
-/** Money may only be recorded against a trip that is approved and funded. */
+/** Money may only be recorded against a trip that is approved and funded (active). */
 async function assertTripAcceptsExpenses(client, trip, action) {
   if (trip.status !== 'active') {
     throw new WorkflowError(409, 'invalid_transition',

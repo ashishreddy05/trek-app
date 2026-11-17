@@ -18,8 +18,8 @@
  *                                                                          closed
  *
  * Expenses may only be recorded against an `active` trip — one the company has
- * approved and funded. An expense against a draft trip is a claim for travel
- * nobody agreed to pay for.
+ * approved and funded. An expense against a draft or unfunded trip is a claim
+ * for travel that has not commenced.
  *
  * Money: every amount is a NUMERIC string and every derived base amount is
  * computed by Postgres NUMERIC arithmetic (exact) or by src/money.js (exact
@@ -29,7 +29,9 @@
 import { tx } from '../db.js';
 import { audit, ACTIONS } from '../audit.js';
 import { validateTrip, validateBudgetLine, validateFxPlan, validateFund, WorkflowError } from './validate.js';
-import { multiplyRate, sumAmounts, normaliseCurrency } from '../money.js';
+import {
+  multiplyRate, sumAmounts, subtractAmounts, compareAmounts, normaliseCurrency,
+} from '../money.js';
 import { baseCurrency, assertCurrencyKnown } from '../currency/service.js';
 
 /* Where a trip may go next, and who may move it. `any` in the actor column
@@ -72,10 +74,11 @@ export async function listTrips(db, { scope, team, employeeId, status, limit = 5
   params.push(Math.min(limit, 100));
 
   const rows = await db.many(
-    `SELECT t.id, t.company_id, t.employee_id, t.destination, t.purpose,
+    `SELECT t.id, t.company_id, t.employee_id, t.origin, t.destination, t.purpose,
             t.start_date, t.end_date, t.currency, t.base_currency, t.status,
             t.submitted_at, t.decided_at, t.decided_by, t.rejection_reason,
-            t.approved_budget_base, t.created_at, t.updated_at,
+            t.approved_budget_base, t.own_funds_base, t.requested_funds_base,
+            t.created_at, t.updated_at,
             e.name AS employee_name, e.employee_code,
             m.name AS decided_by_name,
             (SELECT count(*)::int FROM expense x WHERE x.trip_id = t.id) AS expense_count,
@@ -98,10 +101,11 @@ export async function listTrips(db, { scope, team, employeeId, status, limit = 5
 
 export async function readTrip(db, id) {
   const trip = await db.one(
-    `SELECT t.id, t.company_id, t.employee_id, t.destination, t.purpose,
+    `SELECT t.id, t.company_id, t.employee_id, t.origin, t.destination, t.purpose,
             t.start_date, t.end_date, t.currency, t.base_currency, t.status,
             t.submitted_at, t.decided_at, t.decided_by, t.rejection_reason,
-            t.approved_budget_base, t.created_at, t.updated_at,
+            t.approved_budget_base, t.own_funds_base, t.requested_funds_base,
+            t.created_at, t.updated_at,
             e.name AS employee_name, e.employee_code,
             mgr.name AS manager_name, mgr.status AS manager_status,
             m.name AS decided_by_name
@@ -114,7 +118,12 @@ export async function readTrip(db, id) {
   );
   if (!trip) return null;
 
-  const [budget, fx, funds, expenses, reconciliation] = await Promise.all([
+  const [legs, budget, fx, funds, expenses, reconciliation] = await Promise.all([
+    db.many(
+      `SELECT id, seq, from_city, to_city, depart_date
+         FROM trip_leg WHERE trip_id = $1 ORDER BY seq, id`,
+      [id]
+    ),
     db.many(
       `SELECT id, category, description, amount, currency, rate_to_base, base_amount, created_at
          FROM trip_budget_line WHERE trip_id = $1 ORDER BY created_at, id`,
@@ -159,8 +168,14 @@ export async function readTrip(db, id) {
   );
   const fundsBase = sumAmounts(funds.map((f) => f.base_amount));
 
+  const requestedBase = trip.requested_funds_base ?? '0.00';
+  const fundsRemainingBase = compareAmounts(requestedBase, fundsBase) > 0
+    ? subtractAmounts(requestedBase, fundsBase)
+    : '0.00';
+
   return {
     ...trip,
+    legs,
     budget,
     fxPlan: fx,
     funds,
@@ -170,12 +185,28 @@ export async function readTrip(db, id) {
       budgetBase,
       actualBase,
       fundsBase,
+      ownFundsBase: trip.own_funds_base,
+      requestedBase,
+      fundsRemainingBase,
       varianceBase: sumAmounts([budgetBase, `-${actualBase}`]),
       pendingBase: sumAmounts(
         expenses.filter((x) => x.status === 'submitted').map((x) => x.base_amount)
       ),
     },
   };
+}
+
+/* Legs are replaced as a set: they are an ordered itinerary, not records a
+ * user edits one by one. seq is 1-based and follows the submitted order. */
+async function replaceLegs(client, tripId, legs) {
+  await client.query('DELETE FROM trip_leg WHERE trip_id = $1', [tripId]);
+  for (const [i, leg] of legs.entries()) {
+    await client.query(
+      `INSERT INTO trip_leg (trip_id, seq, from_city, to_city, depart_date)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [tripId, i + 1, leg.from, leg.to, leg.departDate]
+    );
+  }
 }
 
 export async function createTrip({ input, actor, requestId, ip }) {
@@ -187,11 +218,15 @@ export async function createTrip({ input, actor, requestId, ip }) {
     await assertCurrencyKnown(client, valid.currency);
 
     const row = await client.one(
-      `INSERT INTO trip (employee_id, destination, purpose, start_date, end_date, currency, base_currency, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')
+      `INSERT INTO trip (employee_id, origin, destination, purpose, start_date, end_date,
+                         currency, base_currency, status, own_funds_base)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'draft', $9)
        RETURNING *`,
-      [actor.employeeId, valid.destination, valid.purpose, valid.startDate, valid.endDate, valid.currency, base]
+      [actor.employeeId, valid.origin, valid.destination, valid.purpose, valid.startDate,
+       valid.endDate, valid.currency, base, valid.ownFundsBase]
     );
+
+    await replaceLegs(client, row.id, valid.legs);
 
     await audit(client, {
       actorId: actor.employeeId,
@@ -201,7 +236,11 @@ export async function createTrip({ input, actor, requestId, ip }) {
       entityId: row.id,
       newState: 'draft',
       detail: `Draft trip to ${valid.destination} (${valid.currency}) created (${valid.startDate} to ${valid.endDate})`,
-      metadata: { destination: valid.destination, currency: valid.currency, startDate: valid.startDate, endDate: valid.endDate },
+      metadata: {
+        origin: valid.origin, destination: valid.destination, currency: valid.currency,
+        startDate: valid.startDate, endDate: valid.endDate,
+        legs: valid.legs.length, ownFundsBase: valid.ownFundsBase,
+      },
       requestId,
       actorIp: ip,
     });
@@ -222,13 +261,29 @@ export async function updateTrip({ id, input, actor, requestId, ip }) {
     const valid = validateTrip(input, existing.currency);
     await assertCurrencyKnown(client, valid.currency);
 
+    /* Fields introduced later are only replaced when the client sent them, so
+     * an older PATCH that edits the purpose does not wipe the itinerary's
+     * origin or the traveller's own contribution. */
+    const origin = input.origin === undefined ? existing.origin : valid.origin;
+    const ownFundsBase = input.ownFundsBase === undefined
+      ? existing.own_funds_base
+      : valid.ownFundsBase;
+
     const row = await client.one(
       `UPDATE trip
-          SET destination = $2, purpose = $3, start_date = $4, end_date = $5, currency = $6
+          SET origin = $2, destination = $3, purpose = $4, start_date = $5, end_date = $6,
+              currency = $7, own_funds_base = $8
         WHERE id = $1
         RETURNING *`,
-      [id, valid.destination, valid.purpose, valid.startDate, valid.endDate, valid.currency]
+      [id, origin, valid.destination, valid.purpose, valid.startDate, valid.endDate,
+       valid.currency, ownFundsBase]
     );
+
+    /* Omitting legs keeps the existing itinerary; sending the list replaces it.
+     * That lets a PATCH of the headline fields leave the legs untouched. */
+    if (Array.isArray(input.legs)) {
+      await replaceLegs(client, id, valid.legs);
+    }
 
     await audit(client, {
       actorId: actor.employeeId,
@@ -269,6 +324,13 @@ export async function submitTrip({ id, actor, requestId, ip }) {
         'Add at least one budget line before submitting this trip for approval.');
     }
 
+    /* What the company is asked to fund, frozen at submission: the approved
+     * budget minus whatever the traveller already has. Never negative. */
+    const budgetTotal = sumAmounts(budget.map((b) => b.base_amount));
+    const requestedFunds = compareAmounts(budgetTotal, trip.own_funds_base) > 0
+      ? subtractAmounts(budgetTotal, trip.own_funds_base)
+      : '0.00';
+
     /* The approver must exist: an active reporting manager, or Finance. */
     const emp = await client.one(
       `SELECT e.manager_id, m.status AS manager_status, m.name AS manager_name
@@ -288,10 +350,11 @@ export async function submitTrip({ id, actor, requestId, ip }) {
 
     const row = await client.one(
       `UPDATE trip
-          SET status = 'submitted', submitted_at = now(), rejection_reason = NULL
+          SET status = 'submitted', submitted_at = now(), rejection_reason = NULL,
+              requested_funds_base = $2
         WHERE id = $1
         RETURNING *`,
-      [id]
+      [id, requestedFunds]
     );
 
     const resubmit = trip.status === 'changes_requested';
@@ -305,7 +368,10 @@ export async function submitTrip({ id, actor, requestId, ip }) {
       previousState: trip.status,
       newState: 'submitted',
       detail: `Trip to ${trip.destination} submitted for approval (assigned to ${emp.manager_name})`,
-      metadata: { destination: trip.destination, managerId: emp.manager_id, budgetLines: budget.length },
+      metadata: {
+        destination: trip.destination, managerId: emp.manager_id, budgetLines: budget.length,
+        ownFundsBase: trip.own_funds_base, requestedFundsBase: requestedFunds,
+      },
       requestId,
       actorIp: ip,
     });
@@ -357,22 +423,30 @@ export async function decideTrip({ id, decision, reason, actor, requestId, ip })
       : decision === 'reject' ? 'rejected' : 'changes_requested';
 
     let approvedBudget = null;
+    let requestedFunds = null;
     if (decision === 'approve') {
       const lines = await client.many(
         'SELECT base_amount FROM trip_budget_line WHERE trip_id = $1',
         [id]
       );
       approvedBudget = sumAmounts(lines.map((l) => l.base_amount));
+      /* Trips submitted before migration 013 have no frozen request yet. */
+      requestedFunds = trip.requested_funds_base ?? (
+        compareAmounts(approvedBudget, trip.own_funds_base) > 0
+          ? subtractAmounts(approvedBudget, trip.own_funds_base)
+          : '0.00'
+      );
     }
 
     const row = await client.one(
       `UPDATE trip
           SET status = $2, decided_at = now(), decided_by = $3,
               rejection_reason = $4,
-              approved_budget_base = COALESCE($5, approved_budget_base)
+              approved_budget_base = COALESCE($5, approved_budget_base),
+              requested_funds_base = COALESCE($6, requested_funds_base)
         WHERE id = $1
         RETURNING *`,
-      [id, newStatus, actor.employeeId, cleanReason, approvedBudget]
+      [id, newStatus, actor.employeeId, cleanReason, approvedBudget, requestedFunds]
     );
 
     await audit(client, {
@@ -597,7 +671,7 @@ export async function removeFxPlan({ tripId, planId, actor, requestId, ip }) {
 
 /**
  * Issue funds against an approved trip. The first allocation moves the trip to
- * `active`, which is when expenses may start being recorded.
+ * `active`; expenses can already be recorded while it is `approved`.
  */
 export async function issueFund({ tripId, input, actor, requestId, ip }) {
   return tx(async (client) => {

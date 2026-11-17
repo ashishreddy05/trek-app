@@ -232,6 +232,13 @@ function trapFocus(dialog) {
 
 let principal = null;
 let route = 'dashboard';
+let tripFormTrip = null;
+
+function openTripForm(trip) {
+  tripFormTrip = trip || null;
+  route = 'trip-form';
+  renderApp();
+}
 
 /* ============================================================ currencies
  *
@@ -285,6 +292,61 @@ function rememberDisplayCurrency(code) {
   catch { /* a preference that cannot be remembered is still used for now */ }
 }
 
+/* The user's default departure city / home base for flight searches.
+ * Falls back to their profile location if present, else nothing — an assumed
+ * origin quietly produces a flight search from the wrong city. */
+function getHomeCity() {
+  try {
+    const saved = window.localStorage.getItem('trek.homeCity');
+    if (saved && saved.trim()) return saved.trim();
+  } catch { /* storage blocked */ }
+  if (principal?.location && principal.location !== 'Not specified' && principal.location !== '—') {
+    return principal.location;
+  }
+  return '';
+}
+
+function setHomeCity(city) {
+  try {
+    if (city && city.trim()) window.localStorage.setItem('trek.homeCity', city.trim());
+    else window.localStorage.removeItem('trek.homeCity');
+  } catch { /* storage blocked */ }
+}
+
+const AIRPORT_CODES = {
+  bengaluru: 'blr',
+  bangalore: 'blr',
+  dubai: 'dxb',
+  riyadh: 'ruh',
+  jeddah: 'jed',
+  dammam: 'dmm',
+  mumbai: 'bom',
+  delhi: 'del',
+  chennai: 'maa',
+  hyderabad: 'hyd',
+  kolkata: 'ccu',
+  london: 'lon',
+  detroit: 'dtw',
+  singapore: 'sin',
+  frankfurt: 'fra',
+  munich: 'muc',
+  berlin: 'ber',
+  paris: 'cdg',
+  doha: 'doh',
+  muscat: 'mct',
+  bahrain: 'bah',
+  kuwait: 'kwi',
+  chicago: 'ord',
+  newyork: 'jfk',
+  sanfrancisco: 'sfo',
+};
+
+function airportCodeFor(city) {
+  if (!city) return '';
+  const clean = city.split(',')[0].trim().toLowerCase().replace(/[^a-z]/g, '');
+  return AIRPORT_CODES[clean] || encodeURIComponent(clean);
+}
+
 /* ============================================================ A1 · Sign in
  *
  * AUTH-01 (directed 23 Sep 2026): work email + password replaces the emailed code.
@@ -325,7 +387,7 @@ function renderLogin(notice, prefill = '') {
       <form novalidate>
         <div class="field">
           <label for="email">Work email</label>
-          <input id="email" name="email" type="email" autocomplete="username"
+          <input id="email" name="email" type="email" autocomplete="username" spellcheck="false"
                  inputmode="email" placeholder="you@garageplug.com" value="${esc(prefill)}" required>
         </div>
         <div class="field">
@@ -373,7 +435,7 @@ function renderForgot(prefill = '') {
       <form novalidate>
         <div class="field">
           <label for="email">Work email</label>
-          <input id="email" type="email" autocomplete="username" inputmode="email"
+          <input id="email" type="email" autocomplete="username" inputmode="email" spellcheck="false"
                  placeholder="you@garageplug.com" value="${esc(prefill)}" required>
         </div>
         <button class="btn block" type="submit">Send reset link</button>
@@ -580,6 +642,7 @@ function renderRoute(main, items) {
     case 'settings': return renderSettings(main, 'profile');
     case 'profile': return renderSettings(main, 'profile');
     case 'trips': return renderTrips(main);
+    case 'trip-form': return renderTripFormPage(tripFormTrip);
     case 'expenses': return renderExpenses(main);
     case 'approvals': return renderApprovals(main);
     case 'dashboard': return renderDashboard(main);
@@ -786,9 +849,22 @@ async function mountPreferencesTab(container, token) {
     currentMotion = localStorage.getItem('trek_pref_motion') || 'productive';
   } catch { /* storage may be blocked */ }
   const currentCurrency = rememberedDisplayCurrency() || currencyRegistry.baseCurrency;
+  const currentOrigin = getHomeCity();
 
   const wrap = el(`
     <div>
+      <div class="card p-carbon-06 mb-carbon-05">
+        <h3 class="m-0 mb-carbon-02 type-body-02 strong">Default departure location</h3>
+        <p class="m-0 mb-carbon-04 type-body-01 text-secondary">
+          Set your home city or primary base of departure for flight searches and return travel. New trip drafts will default to departing from here.
+        </p>
+        <div class="field m-0">
+          <label>Home city / Departure base</label>
+          <input type="text" data-pref-origin value="${esc(currentOrigin)}" placeholder="e.g. Bengaluru, India">
+          <span class="hint">Pre-fills "Departing from" in new trip drafts</span>
+        </div>
+      </div>
+
       <div class="card p-carbon-06 mb-carbon-05">
         <h3 class="m-0 mb-carbon-02 type-body-02 strong">Display currency preference</h3>
         <p class="m-0 mb-carbon-04 type-body-01 text-secondary">
@@ -833,6 +909,12 @@ async function mountPreferencesTab(container, token) {
         </div>
       </div>
     </div>`);
+
+  wrap.querySelector('[data-pref-origin]')?.addEventListener('change', (e) => {
+    const val = e.target.value.trim();
+    setHomeCity(val);
+    toast(val ? `Default departure city set to ${val}` : 'Default departure city cleared');
+  });
 
   wrap.querySelector('[data-pref-currency]').addEventListener('change', (e) => {
     const val = e.target.value;
@@ -963,6 +1045,7 @@ async function renderTrips(main) {
   let activeScope = canReadAllTrips ? 'all' : (canReadTeamTrips ? 'team' : 'own');
 
   const titleFor = (s) => (s === 'all' ? 'Company trips' : (s === 'team' ? 'Team trips' : 'My trips'));
+  const homeCity = getHomeCity();
 
   const view = el(`
     <div>
@@ -980,7 +1063,7 @@ async function renderTrips(main) {
             <span class="pill ok type-label-01">Live Links</span>
           </div>
           <div class="type-body-01 text-secondary mt-carbon-01">
-            Visiting automotive workshops or clients? Plan flights from Bengaluru, return travel, hotels, and local dealership clusters for any trip.
+            Visiting automotive workshops or clients? Plan flights${homeCity ? ` from ${esc(homeCity)}` : ''}, return travel, hotels, and local dealership clusters for any trip.
           </div>
         </div>
         <button class="btn sm ghost" data-assistant-new-trip>✈️ Plan travel</button>
@@ -1033,10 +1116,10 @@ async function renderTrips(main) {
   }
 
   view.querySelector('[data-add-trip]').addEventListener('click', () => {
-    renderTripFormDrawer(null, load);
+    openTripForm(null);
   });
   view.querySelector('[data-assistant-new-trip]')?.addEventListener('click', () => {
-    renderTripFormDrawer(null, load);
+    openTripForm(null);
   });
   view.querySelector('[data-refresh]').addEventListener('click', () => {
     api.clearCache();
@@ -1076,7 +1159,7 @@ async function renderTrips(main) {
             <button class="btn sm" data-create-empty>+ New trip</button>
           </div>`));
         tableHost.querySelector('[data-create-empty]')?.addEventListener('click', () => {
-          renderTripFormDrawer(null, load);
+          openTripForm(null);
         });
       }
       return;
@@ -1155,22 +1238,26 @@ async function renderTrips(main) {
   load();
 }
 
-async function renderTripFormDrawer(trip, onSaved) {
+/* The trip draft is a page, not a drawer: the itinerary and the funding plan
+ * need the whole window, and the action row stays at the bottom of it. */
+async function renderTripFormPage(trip) {
   const isNew = !trip;
 
   /* The currency list comes from the registry, so it is one list for the whole
    * app rather than a copy typed into a dropdown. */
   await loadCurrencies();
   const tripCurrency = trip?.currency ?? currencyRegistry.baseCurrency;
+  const tripOrigin = trip?.origin || getHomeCity();
+  const baseCurrency = currencyRegistry.baseCurrency;
 
-  const scrim = el(`
-    <div class="drawer-scrim">
-      <div class="drawer" role="dialog" aria-modal="true">
-        <div class="drawer-head">
-          <h2>${isNew ? 'New trip draft' : 'Edit trip draft'}</h2>
-          <p>Specify travel destination, purpose, and dates.</p>
-        </div>
-        <form class="drawer-body" novalidate>
+  const page = el(`
+    <div class="form-page">
+      <div class="page-head">
+        <h1>${isNew ? 'New trip' : 'Edit trip'}</h1>
+        <p>Specify travel destination, purpose, and dates.</p>
+      </div>
+      <form novalidate>
+        <div class="card p-carbon-05 mb-carbon-05">
           <div class="mb-carbon-04">
             <span class="type-caption-01 text-secondary">Quick destination presets:</span>
             <div class="row row-wrap gap-carbon-02 mt-carbon-02" data-hub-chips>
@@ -1181,10 +1268,17 @@ async function renderTripFormDrawer(trip, onSaved) {
               <button type="button" class="chip" data-dest="Singapore" data-cur="SGD">Singapore (SGD)</button>
             </div>
           </div>
-          <div class="field" data-f="destination">
-            <label>Destination <span class="req">*</span></label>
-            <input name="destination" value="${esc(trip?.destination ?? '')}" placeholder="e.g. Frankfurt, Germany" required>
-            <span class="hint">City and country of travel</span>
+          <div class="grid-2">
+            <div class="field" data-f="origin">
+              <label>Departing from</label>
+              <input name="origin" value="${esc(tripOrigin)}" placeholder="e.g. Bengaluru, India">
+              <span class="hint">Departure city for flight planning</span>
+            </div>
+            <div class="field" data-f="destination">
+              <label>Destination <span class="req">*</span></label>
+              <input name="destination" value="${esc(trip?.destination ?? '')}" placeholder="e.g. Frankfurt, Germany" required>
+              <span class="hint">City and country of travel</span>
+            </div>
           </div>
           <div class="field" data-f="currency">
             <label>Trip Destination Currency <span class="req">*</span></label>
@@ -1206,30 +1300,51 @@ async function renderTripFormDrawer(trip, onSaved) {
               <input type="date" name="endDate" value="${trip?.end_date ? String(trip.end_date).slice(0, 10) : ''}" required>
             </div>
           </div>
-          <div data-travel-assistant-slot class="mt-carbon-04"></div>
-        </form>
-        <div class="drawer-foot">
-          <button class="btn ghost sm" data-cancel>Cancel</button>
-          <button class="btn sm" data-save>Save draft</button>
         </div>
-      </div>
+
+        <div class="card p-carbon-05 mb-carbon-05">
+          <div class="row-between mb-carbon-02">
+            <h2 class="m-0 type-body-02 strong">Itinerary</h2>
+            <button type="button" class="btn sm ghost" data-add-leg>+ Add leg</button>
+          </div>
+          <p class="type-helper-01 m-0 mb-carbon-03">
+            Add each flight or train leg for a multi-city trip (for example Bengaluru → Dubai → Riyadh → Dubai → Bengaluru). Leave empty for a direct trip.
+          </p>
+          <div data-f="legs"><div data-legs></div></div>
+        </div>
+
+        <div class="card p-carbon-05 mb-carbon-05">
+          <h2 class="m-0 mb-carbon-02 type-body-02 strong">Budget &amp; funding</h2>
+          <div class="field m-0" data-f="ownFundsBase">
+            <label>Own funds available (${esc(baseCurrency)})</label>
+            <input type="text" inputmode="decimal" name="ownFundsBase" value="${esc(trip?.own_funds_base ?? '0.00')}" placeholder="0.00">
+            <span class="hint">Money you already have for this trip. When you submit, Trek asks the company for the approved budget minus this amount.</span>
+          </div>
+        </div>
+
+        <div data-travel-assistant-slot></div>
+
+        <div class="form-page-actions">
+          <button type="button" class="btn ghost sm" data-cancel>Cancel</button>
+          <button type="button" class="btn sm" data-save>Save draft</button>
+        </div>
+      </form>
     </div>`);
 
-  document.body.appendChild(scrim);
-  const releaseFocus = trapFocus(scrim.querySelector('[role="dialog"]'));
-  const close = () => { releaseFocus(); scrim.remove(); };
-  scrim.querySelector('[data-cancel]').addEventListener('click', close);
-  scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
+  document.querySelector('#main').replaceChildren(page);
 
-  const form = scrim.querySelector('form');
+  const form = page.querySelector('form');
+  const originInput = form.querySelector('[name="origin"]');
   const destInput = form.querySelector('[name="destination"]');
   const curSelect = form.querySelector('[name="currency"]');
   const startInput = form.querySelector('[name="startDate"]');
   const endInput = form.querySelector('[name="endDate"]');
   const assistantSlot = form.querySelector('[data-travel-assistant-slot]');
+  const legsHost = form.querySelector('[data-legs]');
 
   function updateAssistant() {
     assistantSlot.innerHTML = renderAutomotiveTravelCard({
+      origin: originInput?.value?.trim() || getHomeCity(),
       destination: destInput.value.trim(),
       start_date: startInput.value,
       end_date: endInput.value,
@@ -1238,7 +1353,7 @@ async function renderTripFormDrawer(trip, onSaved) {
     });
   }
 
-  for (const chip of scrim.querySelectorAll('[data-hub-chips] button')) {
+  for (const chip of page.querySelectorAll('[data-hub-chips] button')) {
     chip.addEventListener('click', () => {
       destInput.value = chip.dataset.dest;
       if (chip.dataset.cur) curSelect.value = chip.dataset.cur;
@@ -1246,21 +1361,82 @@ async function renderTripFormDrawer(trip, onSaved) {
     });
   }
 
+  originInput?.addEventListener('input', updateAssistant);
   destInput.addEventListener('input', updateAssistant);
   startInput.addEventListener('change', updateAssistant);
   endInput.addEventListener('change', updateAssistant);
   curSelect.addEventListener('change', updateAssistant);
+
+  function addLegRow(leg = {}) {
+    if (legsHost.querySelectorAll('[data-leg]').length >= 20) {
+      toast('An itinerary can have at most 20 legs', true);
+      return;
+    }
+    const row = el(`
+      <div class="leg-row" data-leg>
+        <div class="field m-0">
+          <label>From <span class="req">*</span></label>
+          <input name="leg-from" value="${esc(leg.from ?? '')}" placeholder="e.g. Bengaluru">
+        </div>
+        <div class="field m-0">
+          <label>To <span class="req">*</span></label>
+          <input name="leg-to" value="${esc(leg.to ?? '')}" placeholder="e.g. Dubai">
+        </div>
+        <div class="field m-0">
+          <label>Date</label>
+          <input type="date" name="leg-date" value="${esc(leg.departDate ? String(leg.departDate).slice(0, 10) : '')}">
+        </div>
+        <button type="button" class="btn quiet sm danger" data-remove-leg>Remove</button>
+      </div>`);
+    row.querySelector('[data-remove-leg]').addEventListener('click', () => row.remove());
+    legsHost.appendChild(row);
+  }
+
+  for (const leg of trip?.legs ?? []) {
+    addLegRow({ from: leg.from_city, to: leg.to_city, departDate: leg.depart_date });
+  }
+  page.querySelector('[data-add-leg]').addEventListener('click', () => addLegRow());
   updateAssistant();
-  scrim.querySelector('[data-save]').addEventListener('click', async () => {
+
+  function goBackToTrips() {
+    tripFormTrip = null;
+    route = 'trips';
+    renderApp();
+  }
+  page.querySelector('[data-cancel]').addEventListener('click', goBackToTrips);
+
+  page.querySelector('[data-save]').addEventListener('click', saveTrip);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    saveTrip();
+  });
+
+  async function saveTrip() {
+    const legs = [];
+    for (const row of form.querySelectorAll('[data-leg]')) {
+      const from = row.querySelector('[name="leg-from"]').value.trim();
+      const to = row.querySelector('[name="leg-to"]').value.trim();
+      const departDate = row.querySelector('[name="leg-date"]').value;
+      if (!from && !to && !departDate) continue;
+      if (!from || !to) {
+        toast(`Itinerary leg ${legs.length + 1} needs both a departure and an arrival city`, true);
+        return;
+      }
+      legs.push({ from, to, departDate: departDate || null });
+    }
+
     const payload = {
-      destination: form.querySelector('[name="destination"]').value.trim(),
-      currency: form.querySelector('[name="currency"]')?.value || currencyRegistry.baseCurrency,
+      origin: originInput.value.trim(),
+      destination: destInput.value.trim(),
+      currency: curSelect.value || currencyRegistry.baseCurrency,
       purpose: form.querySelector('[name="purpose"]').value.trim(),
-      startDate: form.querySelector('[name="startDate"]').value,
-      endDate: form.querySelector('[name="endDate"]').value,
+      startDate: startInput.value,
+      endDate: endInput.value,
+      ownFundsBase: form.querySelector('[name="ownFundsBase"]').value.trim() || '0',
+      legs,
     };
 
-    const saveBtn = scrim.querySelector('[data-save]');
+    const saveBtn = page.querySelector('[data-save]');
     saveBtn.disabled = true;
 
     try {
@@ -1271,14 +1447,14 @@ async function renderTripFormDrawer(trip, onSaved) {
         await api.patch(`/trips/${trip.id}`, payload);
         toast('Trip draft updated');
       }
-      close();
-      onSaved();
+      goBackToTrips();
     } catch (err) {
-      if (err.fields) showFieldErrors(form, err.fields);
+      if (err.fields?.legs) toast(err.fields.legs, true);
+      else if (err.fields) showFieldErrors(form, err.fields);
       else toast(err.message, true);
       saveBtn.disabled = false;
     }
-  });
+  }
 }
 /* The trip detail drawer: budget, currency plan, funds, expenses, bills and
  * reconciliation, in the order the money moves.
@@ -1379,12 +1555,25 @@ function renderTripStepper(status) {
 }
 
 function renderAutomotiveTravelCard(trip) {
+  const origin = trip.origin || getHomeCity();
+  const originCity = origin.split(',')[0].trim();
   const dest = trip.destination || '';
   const destLower = dest.toLowerCase();
   const startDate = trip.start_date || trip.startDate || '';
   const endDate = trip.end_date || trip.endDate || '';
   const curr = trip.currency || 'USD';
   const baseCurr = trip.base_currency || trip.baseCurrency || 'INR';
+
+  if (!originCity) {
+    return `
+      <div class="card p-carbon-04 mb-carbon-05 border-subtle bg-layer rounded">
+        <div class="row-start gap-carbon-02 v-middle mb-carbon-01">
+          <span class="type-body-02 strong">✈️ Flight &amp; Travel Planning Assistant</span>
+          <span class="pill off type-label-01">Enter Departure</span>
+        </div>
+        <p class="type-body-01 text-secondary m-0">Enter a departure city above to generate live flight, return travel and hotel links.</p>
+      </div>`;
+  }
 
   if (!dest) {
     return `
@@ -1393,18 +1582,20 @@ function renderAutomotiveTravelCard(trip) {
           <span class="type-body-02 strong">✈️ Flight &amp; Travel Planning Assistant</span>
           <span class="pill off type-label-01">Select Destination</span>
         </div>
-        <p class="type-body-01 text-secondary m-0">Enter a travel destination and dates above to generate live flight booking searches from Bengaluru, hotel links, and local automotive client workshop maps.</p>
+        <p class="type-body-01 text-secondary m-0">Enter a travel destination and dates above to generate live flight booking searches from ${esc(originCity)}, hotel links, and local automotive client workshop maps.</p>
       </div>`;
   }
 
   // Smart links
-  const flightQuery = encodeURIComponent(`Flights from Bengaluru to ${dest} from ${startDate} to ${endDate}`);
-  const returnQuery = encodeURIComponent(`Flights from ${dest} to Bengaluru on ${endDate || startDate}`);
+  const flightQuery = encodeURIComponent(`Flights from ${origin} to ${dest} from ${startDate} to ${endDate}`);
+  const returnQuery = encodeURIComponent(`Flights from ${dest} to ${origin} on ${endDate || startDate}`);
   const googleFlightsUrl = `https://www.google.com/travel/flights?q=${flightQuery}`;
   const returnFlightsUrl = `https://www.google.com/travel/flights?q=${returnQuery}`;
 
   const destCity = dest.split(',')[0].trim();
-  const skyscannerUrl = `https://www.skyscanner.co.in/transport/flights/blr/${encodeURIComponent(destCity.toLowerCase())}/`;
+  const originAirport = airportCodeFor(originCity);
+  const destAirport = airportCodeFor(destCity);
+  const skyscannerUrl = `https://www.skyscanner.co.in/transport/flights/${encodeURIComponent(originAirport)}/${encodeURIComponent(destAirport)}/`;
   const hotelsUrl = `https://www.google.com/travel/hotels?q=${encodeURIComponent('Hotels in ' + dest)}`;
 
   // Automotive cluster detection for GaragePlug field team
@@ -1441,14 +1632,14 @@ function renderAutomotiveTravelCard(trip) {
         <span class="type-caption-01 text-secondary">${esc(dest)}</span>
       </div>
       <div class="type-body-01 text-secondary mb-carbon-03">
-        Book flights from Bengaluru, plan return travel, hotels, automotive client workshops, and live forex:
+        Book flights from ${esc(originCity)}, plan return travel, hotels, automotive client workshops, and live forex:
       </div>
       <div class="row row-wrap gap-carbon-02">
         <a href="${googleFlightsUrl}" target="_blank" rel="noopener" class="btn sm quiet">
           ✈️ Google Flights (${esc(datesLabel)}) ↗
         </a>
         <a href="${returnFlightsUrl}" target="_blank" rel="noopener" class="btn sm quiet">
-          🛫 Return Flights (${esc(destCity)} → BLR) ↗
+          🛫 Return Flights (${esc(destCity)} → ${esc(originCity)}) ↗
         </a>
         <a href="${skyscannerUrl}" target="_blank" rel="noopener" class="btn sm quiet">
           🔍 Skyscanner Fares ↗
@@ -1507,6 +1698,7 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
       const canSettle = principal.permissions.includes('trip.settle');
       const isEditable = ['draft', 'changes_requested'].includes(trip.status);
       const isActive = trip.status === 'active';
+      const canAddExpenses = isActive && isOwner;
 
       /* ---- header ---- */
       content.appendChild(el(`
@@ -1536,6 +1728,19 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
             <div class="type-body-01">${esc(trip.purpose)}</div>
           </div>
 
+          <div class="mb-carbon-05">
+            <div class="type-label-01 strong caps text-placeholder mb-carbon-02">Itinerary</div>
+            ${trip.legs?.length ? `
+              <div class="col gap-carbon-02">
+                ${trip.legs.map((leg, i) => `
+                  <div class="type-body-01">
+                    <strong class="mr-carbon-02">${i + 1}.</strong>${esc(leg.from_city)} → ${esc(leg.to_city)}
+                    ${leg.depart_date ? `<span class="type-caption-01 text-placeholder ml-carbon-02">${fmtDate(leg.depart_date)}</span>` : ''}
+                  </div>`).join('')}
+              </div>` : `
+              <div class="type-body-01 text-secondary">Direct: ${esc(trip.origin || '—')} → ${esc(trip.destination)}</div>`}
+          </div>
+
           ${renderAutomotiveTravelCard(trip)}
 
           ${isEditable && isOwner ? `
@@ -1559,9 +1764,18 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
             </div>
           ` : ''}
           ${trip.status === 'approved' ? `
-            <div class="notice ok mb-carbon-04">
-              Approved${trip.decided_by_name ? ` by <strong>${esc(trip.decided_by_name)}</strong>` : ''}${trip.decided_at ? ` on ${fmtDate(trip.decided_at)}` : ''}. Ready for travel and funds issuance.
-            </div>
+            ${canIssueFunds ? `
+              <div class="notice info mb-carbon-04 row-between">
+                <div>
+                  <strong>Next step — Issue funds:</strong> This trip budget is approved. Issue cash advance or a forex card to disburse travel funds and activate the trip so the traveller can record expenses.
+                </div>
+                <button class="btn sm nowrap" data-issue-funds-banner>+ Issue funds</button>
+              </div>
+            ` : `
+              <div class="notice info mb-carbon-04">
+                <strong>Budget approved · Awaiting funds:</strong> Your trip budget has been approved${trip.decided_by_name ? ` by <strong>${esc(trip.decided_by_name)}</strong>` : ''}. Management or Finance will issue your travel funds (cash advance or forex card). Once funds are issued, your trip will become Active and you can record expenses.
+              </div>
+            `}
           ` : ''}
           ${trip.status === 'reconciliation_pending' ? `
             <div class="notice info mb-carbon-04">
@@ -1575,6 +1789,9 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
             ${isEditable && isOwner ? `
               <button class="btn sm" data-submit-trip${(!trip.manager_name || trip.manager_status !== 'active' || !trip.budget?.length) ? ' disabled title="Complete budget and reporting manager requirements to submit"' : ''}>Submit for approval</button>
               <button class="btn sm ghost" data-edit-trip>Edit trip</button>
+            ` : ''}
+            ${trip.status === 'approved' && canIssueFunds ? `
+              <button class="btn sm" data-issue-funds-action>+ Issue funds</button>
             ` : ''}
             ${isActive && isOwner ? `
               <button class="btn sm" data-reconcile>Submit reconciliation</button>
@@ -1711,7 +1928,7 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
           <div class="empty py-carbon-06 px-carbon-04">
             <p class="m-0 type-body-01 text-tertiary">
               ${trip.status === 'approved'
-                ? 'Approved, but no funds issued yet. Expenses can only be recorded once funds are handed over.'
+                ? 'Approved, but no funds issued yet.'
                 : 'No funds issued against this trip.'}
             </p>
           </div>`));
@@ -1747,7 +1964,10 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
             <div><span class="text-tertiary">Budget</span><br><strong class="tabular">${MONEY(t.budgetBase, trip.base_currency)}</strong></div>
             <div><span class="text-tertiary">Spent</span><br><strong class="tabular">${MONEY(t.actualBase, trip.base_currency)}</strong></div>
             <div><span class="text-tertiary">Pending</span><br><strong class="tabular">${MONEY(t.pendingBase, trip.base_currency)}</strong></div>
+            <div><span class="text-tertiary">Own funds</span><br><strong class="tabular">${MONEY(t.ownFundsBase, trip.base_currency)}</strong></div>
+            <div><span class="text-tertiary">Requested from company</span><br><strong class="tabular">${MONEY(t.requestedBase, trip.base_currency)}</strong></div>
             <div><span class="text-tertiary">Funds issued</span><br><strong class="tabular">${MONEY(t.fundsBase, trip.base_currency)}</strong></div>
+            <div><span class="text-tertiary">Still to issue</span><br><strong class="tabular">${MONEY(t.fundsRemainingBase, trip.base_currency)}</strong></div>
           </div>
         </div>`));
 
@@ -1756,8 +1976,11 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
         <div class="border-top pt-carbon-06 mt-carbon-06">
           <div class="row-between mb-carbon-04">
             <h3 class="m-0 type-body-02 strong">Expenses (${trip.expenses?.length || 0})</h3>
-            ${isActive && isOwner ? '<button class="btn sm ghost" data-add-expense>+ Add expense</button>' : ''}
+            ${canAddExpenses ? '<button class="btn sm ghost" data-add-expense>+ Add expense</button>' : ''}
           </div>
+          ${trip.status === 'approved'
+            ? '<div class="notice info mb-carbon-03"><strong>Expenses locked:</strong> Travel expenses can only be recorded once advance funds are issued and the trip commences (Active).</div>'
+            : ''}
           <div data-expenses-table></div>
         </div>`);
       root.appendChild(expSection);
@@ -1767,9 +1990,13 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
         expHost.replaceChildren(el(`
           <div class="empty py-carbon-06 px-carbon-05">
             <p class="m-0 mb-carbon-03 type-body-01 text-tertiary">
-              ${trip.status === 'active' ? 'No expenses recorded on this trip yet.' : 'No expenses added to this trip yet.'}
+              ${trip.status === 'approved'
+                ? 'Expenses are locked until travel funds are issued and the trip becomes Active.'
+                : trip.status === 'active'
+                  ? 'No expenses recorded on this trip yet.'
+                  : 'No expenses added to this trip yet.'}
             </p>
-            ${isActive && isOwner ? '<button class="btn sm quiet" data-add-first-exp>+ Add first expense</button>' : ''}
+            ${canAddExpenses ? '<button class="btn sm quiet" data-add-first-exp>+ Add first expense</button>' : ''}
           </div>`));
         expHost.querySelector('[data-add-first-exp]')?.addEventListener('click', () => {
           renderExpenseFormDrawer(trip.id, null, loadDetail, trip.currency || 'INR');
@@ -1812,7 +2039,7 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
               <td>${statusPill(x.status)}</td>
               <td class="num nowrap">
                 <button class="btn quiet sm" data-bills-x="${esc(x.id)}" title="Receipts">Bills</button>
-                ${x.status === 'draft' && isActive && isOwner ? `
+                ${x.status === 'draft' && canAddExpenses ? `
                   <button class="btn quiet sm" data-sub-x title="Submit expense">Submit</button>
                   <button class="btn quiet sm" data-edit-x title="Edit expense">Edit</button>
                   <button class="btn quiet sm danger" data-del-x title="Delete expense">Delete</button>
@@ -1968,8 +2195,12 @@ async function renderTripDetailDrawer(tripId, onRefresh) {
         });
       }
 
+      content.querySelector('[data-issue-funds-banner]')?.addEventListener('click', () => openFundDrawer(trip, loadDetail));
+      content.querySelector('[data-issue-funds-action]')?.addEventListener('click', () => openFundDrawer(trip, loadDetail));
+
       content.querySelector('[data-edit-trip]')?.addEventListener('click', () => {
-        renderTripFormDrawer(trip, loadDetail);
+        close();
+        openTripForm(trip);
       });
 
       content.querySelector('[data-reconcile]')?.addEventListener('click', async (e) => {
@@ -2037,7 +2268,7 @@ function openBudgetLineDrawer(trip, onSaved) {
             <input name="description" placeholder="e.g. Flights to Frankfurt, 4 nights hotel" required>
           </div>
           <div class="field mb-carbon-03">
-            <a href="https://www.google.com/travel/flights?q=${encodeURIComponent('Flights from Bengaluru to ' + (trip.destination || '') + ' from ' + (trip.start_date || '') + ' to ' + (trip.end_date || ''))}" target="_blank" rel="noopener" class="type-caption-01 text-interactive medium">
+            <a href="https://www.google.com/travel/flights?q=${encodeURIComponent('Flights from ' + getHomeCity() + ' to ' + (trip.destination || '') + ' from ' + (trip.start_date || '') + ' to ' + (trip.end_date || ''))}" target="_blank" rel="noopener" class="type-caption-01 text-interactive medium">
               ✈️ Search flight fares on Google Flights ↗
             </a>
           </div>
@@ -2238,6 +2469,9 @@ async function openFxPlanDrawer(trip, onSaved) {
 /* ---- issue-funds drawer ---- */
 
 function openFundDrawer(trip, onSaved) {
+  const t = trip.totals || {};
+  const amountToIssue = Number(t.fundsRemainingBase ?? 0) > 0 ? t.fundsRemainingBase : '';
+
   const scrim = el(`
     <div class="drawer-scrim z-55">
       <div class="drawer" role="dialog" aria-modal="true">
@@ -2258,6 +2492,7 @@ function openFundDrawer(trip, onSaved) {
             <div class="field" data-f="amount">
               <label>Amount <span class="req">*</span></label>
               <input type="text" name="amount" placeholder="0.00" required>
+              <span class="hint">Requested from company: ${MONEY(t.requestedBase, trip.base_currency)} · Still to issue: ${MONEY(t.fundsRemainingBase, trip.base_currency)}</span>
             </div>
             <div class="field" data-f="currency">
               <label>Currency <span class="req">*</span></label>
@@ -2283,6 +2518,12 @@ function openFundDrawer(trip, onSaved) {
   scrim.addEventListener('click', (e) => { if (e.target === scrim) close(); });
 
   const form = scrim.querySelector('form');
+  const amountInput = form.querySelector('[name="amount"]');
+  if (amountToIssue && !amountInput.value) {
+    amountInput.value = String(amountToIssue);
+    /* Remaining is in the base currency, so the prefilled amount is too. */
+    if (trip.base_currency) form.querySelector('[name="currency"]').value = trip.base_currency;
+  }
   scrim.querySelector('[data-save]').addEventListener('click', async () => {
     const payload = {
       kind: form.querySelector('[name="kind"]').value,
@@ -3840,9 +4081,11 @@ async function renderDashboard(main) {
         </div>`;
 
       /* ---- Active trip command center (for travellers currently on trip) ---- */
-      const activeTrip = trips.find((t) => t.status === 'active' && t.employee_id === principal.employeeId);
+      const activeTrip = trips.find((t) => t.status === 'active' && t.employee_id === principal.employeeId)
+        || trips.find((t) => t.status === 'approved' && t.employee_id === principal.employeeId);
       let activeHero = null;
       if (activeTrip) {
+        const isApprovedTrip = activeTrip.status === 'approved';
         const fundsNum = Number(activeTrip.funds_base || 0);
         const spentNum = Number(activeTrip.spent_base || 0);
         const pct = fundsNum > 0 ? Math.min(100, Math.round((spentNum / fundsNum) * 100)) : 0;
@@ -3856,7 +4099,7 @@ async function renderDashboard(main) {
             <div class="active-trip-hero-head">
               <div>
                 <div class="row gap-carbon-02 mb-carbon-01">
-                  <span class="pill ok type-label-01">● Current active trip</span>
+                  <span class="pill ok type-label-01">${isApprovedTrip ? 'Approved — expenses open' : 'Active trip'}</span>
                   <span class="type-caption-01 text-secondary">${fmtDate(activeTrip.start_date)} – ${fmtDate(activeTrip.end_date)}</span>
                   ${activeTrip.employee_name && activeTrip.employee_id !== principal.employeeId ? `<span class="type-caption-01 text-secondary">· ${esc(activeTrip.employee_name)}</span>` : ''}
                 </div>
@@ -4119,7 +4362,7 @@ async function renderDashboard(main) {
     });
   }
   view.querySelector('[data-new-trip]')?.addEventListener('click', () => {
-    renderTripFormDrawer(null, load);
+    openTripForm(null);
   });
   view.querySelector('[data-refresh]').addEventListener('click', () => {
     api.clearCache();
@@ -4296,7 +4539,7 @@ async function openDrawer(employee, departments, onSaved) {
             </div>
             <div class="field" data-f="workEmail">
               <label>Work email <span class="req">*</span></label>
-              <input name="workEmail" type="email" value="${esc(employee?.work_email ?? '')}" placeholder="e.g. jane@company.com" required>
+              <input name="workEmail" type="email" spellcheck="false" value="${esc(employee?.work_email ?? '')}" placeholder="e.g. jane@company.com" required>
               <span class="hint">Login identity</span>
             </div>
             <div class="field" data-f="mobile">
@@ -4448,8 +4691,8 @@ async function openDrawer(employee, departments, onSaved) {
 
         const nextRoles = chips.filter((c) => c.getAttribute('aria-pressed') === 'true')
           .map((c) => c.dataset.role);
-        const prevRoles = [...(employee.roles ?? [])].sort().join(',');
-        if (nextRoles.length && nextRoles.slice().sort().join(',') !== prevRoles) {
+        const prevRoles = (employee.roles ?? []).toSorted().join(',');
+        if (nextRoles.length && nextRoles.toSorted().join(',') !== prevRoles) {
           await api.patch(`/employees/${employee.id}/roles`, { roles: nextRoles });
         }
         toast(`${payload.name} updated`);
